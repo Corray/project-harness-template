@@ -92,6 +92,18 @@ docs/
 └── project.yaml       # 项目元信息
 ```
 
+## 与 ai-workflow 的关系
+
+```
+ai-workflow（集中式）                 项目仓库（分散式）
+├── 0-1 新项目共识文档                ├── /init-baseline 基线 + knowledge 初始化
+├── 规则优化 eval/update-rules        ├── /iterate 迭代共识 + 任务清单
+└── Knowledge 源文件                  ├── /design 详细设计（按需加载 knowledge）
+                                      ├── /impl + /review（journal + spec 自迭代）
+                                      ├── /test-gen + /preflight
+                                      └── /record-session 会话记录
+```
+
 ## 可选增强
 
 ### Code Review Graph
