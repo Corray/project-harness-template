@@ -1,0 +1,29 @@
+# 项目元信息（由 /init-baseline 自动生成，[人工] 标注的字段需手动补充）
+
+name: {project}
+type: existing                    # existing / new
+description: "{产品简介}"
+
+# 技术栈（自动检测）
+stack: {backend-java|frontend-react|frontend-taro|...}
+arch: {ddd|mvc|...}
+jdk: {11|21}                      # 后端项目
+db: {mysql|mongodb|es}            # 后端项目
+ui_lib: {antd|vant|antd-mobile}   # 前端项目
+
+# 仓库信息（自动获取）
+repo: {owner/repo}
+baseline_commit: {HEAD commit hash}
+baseline_date: {YYYY-MM-DD}
+
+# 需求来源 [人工]
+tapd_project_id:
+github_issue_repo:
+
+# 共识文档来源
+consensus_source:
+
+# 已知约束 [人工]
+constraints:
+  # - "某模块不能 breaking change"
+  # - "某模块有技术债"
