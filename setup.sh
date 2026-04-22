@@ -6,11 +6,14 @@
 #   2. 运行：bash /path/to/project-harness-template/setup.sh
 #
 # 安装内容：
-# - 根目录 CLAUDE.md
-# - .claude/commands/（10 个命令）
+# - 根目录 CLAUDE.md + HARNESS_PHILOSOPHY.md
+# - .claude/commands/（14 个命令，含 /adversarial-review、/metrics、/dashboard、/command-feedback）
 # - .claude/knowledge/（backend / frontend / testing / red-lines.md）
 # - docs/ 目录骨架（baseline / consensus / design / feedback / tasks / workspace）
+# - docs/workspace/.harness-metrics/（impl / adversarial / run-tasks / knowledge-hits / snapshots，/metrics 数据源）
 # - docs/project.yaml 占位模板（由 /init-baseline 填充）
+# - ~/.claude/harness-dashboard/build.py（/dashboard 聚合脚本，跨项目共享）
+# - ~/.claude/harness-projects.yaml 注册本项目（/dashboard 项目列表数据源）
 #
 set -e
 
@@ -43,9 +46,53 @@ fi
 echo -e "${GREEN}[1/4] 检测到目标项目：${CURRENT_DIR}${NC}"
 echo ""
 
+# ----- 公用函数：注册项目到 ~/.claude/harness-projects.yaml（幂等）-----
+register_project() {
+  local proj_name="$1"
+  local proj_path="$2"
+  local proj_type="$3"
+  local today
+  today=$(date +%Y-%m-%d)
+  local yaml="$HOME/.claude/harness-projects.yaml"
+  mkdir -p "$(dirname "$yaml")"
+
+  if [ ! -f "$yaml" ]; then
+    cat > "$yaml" <<YAML
+version: 1
+projects:
+YAML
+  fi
+
+  # 按 path 精确匹配已注册则跳过
+  if grep -F -q "    path: $proj_path" "$yaml" 2>/dev/null; then
+    echo "  - ~/.claude/harness-projects.yaml：已注册，跳过"
+    return 0
+  fi
+
+  cat >> "$yaml" <<YAML
+  - name: $proj_name
+    path: $proj_path
+    type: $proj_type
+    registered_at: $today
+YAML
+  echo "  - ~/.claude/harness-projects.yaml：已注册 $proj_name"
+}
+
+# ----- 公用函数：安装 /dashboard 聚合脚本（全局共享）-----
+install_dashboard() {
+  local src="$TEMPLATES_DIR/dashboard/build.py"
+  if [ ! -f "$src" ]; then
+    return 0
+  fi
+  mkdir -p "$HOME/.claude/harness-dashboard"
+  cp "$src" "$HOME/.claude/harness-dashboard/build.py"
+  echo "  - ~/.claude/harness-dashboard/build.py 已就位（/dashboard 聚合脚本）"
+}
+
 # ----- Step 2: 覆盖确认 -----
 CONFLICTS=()
 [ -f "./CLAUDE.md" ] && CONFLICTS+=("CLAUDE.md")
+[ -f "./HARNESS_PHILOSOPHY.md" ] && CONFLICTS+=("HARNESS_PHILOSOPHY.md")
 [ -d "./.claude/commands" ] && CONFLICTS+=(".claude/commands/")
 [ -d "./.claude/knowledge" ] && CONFLICTS+=(".claude/knowledge/")
 [ -f "./docs/project.yaml" ] && CONFLICTS+=("docs/project.yaml")
@@ -71,16 +118,32 @@ echo -e "${GREEN}[2/4] 复制模板文件${NC}"
 mkdir -p .claude docs
 
 cp "$TEMPLATES_DIR/CLAUDE.md" ./CLAUDE.md
+cp "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" ./HARNESS_PHILOSOPHY.md
 cp -r "$TEMPLATES_DIR/.claude/commands" ./.claude/
 cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
 cp -r "$TEMPLATES_DIR/docs/." ./docs/
 
+# 创建 /metrics 事件流目录骨架（/impl、/run-tasks、/adversarial-review 会往这里写 jsonl）
+for sub in impl adversarial run-tasks knowledge-hits snapshots command-feedback; do
+  mkdir -p "docs/workspace/.harness-metrics/$sub"
+  touch "docs/workspace/.harness-metrics/$sub/.gitkeep"
+done
+mkdir -p docs/feedback/commands
+touch docs/feedback/commands/.gitkeep
+
 COMMAND_COUNT=$(find "$TEMPLATES_DIR/.claude/commands" -maxdepth 1 -name "*.md" | wc -l | tr -d ' ')
 echo "  - CLAUDE.md 已就位"
-echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/）"
+echo "  - HARNESS_PHILOSOPHY.md 已就位（设计哲学，建议通读）"
+echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/，含 /adversarial-review、/metrics、/dashboard、/command-feedback）"
 echo "  - knowledge 分层已就位（.claude/knowledge/{backend,frontend,testing,red-lines.md}）"
 echo "  - docs/ 已就位（baseline / consensus / design / feedback / tasks / workspace，含 .gitkeep）"
+echo "  - docs/workspace/.harness-metrics/ 事件流目录骨架已就位（/metrics 数据源）"
 echo "  - docs/project.yaml 占位模板已就位"
+
+# 全局：安装 /dashboard 聚合脚本 + 注册本项目
+install_dashboard
+PROJECT_NAME=$(basename "$CURRENT_DIR")
+register_project "$PROJECT_NAME" "$CURRENT_DIR" "project-harness-template"
 echo ""
 
 # ----- Step 4: MCP 环境变量提示 -----
@@ -106,5 +169,15 @@ echo "  2. 在项目仓库运行：claude"
 echo "  3. 首次接入执行：/init-baseline \"你的产品简介\""
 echo "     （会自动填充 knowledge 和 docs/project.yaml 的基线字段）"
 echo "  4. 补充 docs/project.yaml 中 [人工] 标注的字段"
-echo "  5. 提交：git add CLAUDE.md .claude/ docs/ && git commit -m \"harness: init project harness\""
+echo "  5. 提交：git add CLAUDE.md HARNESS_PHILOSOPHY.md .claude/ docs/ && git commit -m \"harness: init project harness\""
+echo ""
+echo "日常工作流："
+echo "  - 日常任务：/impl \"{描述}\"（小任务全自动；大任务自动转 /iterate 产出 tasks.yaml）"
+echo "  - PR / Sprint 合并前：【新开 session】/adversarial-review --branch feature/xxx"
+echo "  - 每周 / Sprint 结束：/metrics --days 7 看首次通过率、Evaluator 分数、零命中 knowledge"
+echo "  - 跨项目看板：/dashboard --open （所有注册项目的指标 + 对抗评估 + 时间线）"
+echo "  - 踩到某条命令的坑：/command-feedback <命令名> \"<问题描述>\"（记录到 docs/feedback/commands/）"
+echo "  - 批量升级所有注册项目：bash $TEMPLATES_DIR/upgrade-all.sh [--safe|--dry-run|--only NAME]"
+echo ""
+echo "想理解设计理念 → 读 HARNESS_PHILOSOPHY.md"
 echo ""

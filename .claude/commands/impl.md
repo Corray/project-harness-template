@@ -64,6 +64,22 @@
 转入 /iterate？(Y / 强制 /impl)
 ```
 
+**确认 Y 后的流程（交接给 /iterate）：**
+
+```
+/iterate 自动执行：
+  ├── 影响分析（模块 / API / 数据 / 冲突）
+  ├── 生成迭代共识文档：docs/tasks/{sprint}/iterate-consensus.md
+  ├── 生成 checklist.md（人类视角，可勾选）
+  └── 生成 tasks.yaml（机器视角，含 verify 断言）✅ 一定产出
+
+→ 提示：检查 checklist + tasks.yaml，确认后执行 /run-tasks {role}
+```
+
+**为什么大任务不直接自动写代码？** 大任务的完成标准必须**先**被写成 `tasks.yaml` 的断言（cmd / file_contains / http / sql / e2e / regression），否则就是在没有合约的情况下"开干"——这正是 Anthropic 研究指出的 *premature closure* 风险。/iterate 产出的 tasks.yaml 是大任务的合约，/run-tasks 循环执行断言直到全绿才算完成。
+
+**"强制 /impl" 会怎样？** 跳过 /iterate 的影响分析和 tasks.yaml 生成，直接按小任务流程走。只在你**非常确定**任务边界很小、AI 判错的情况下用；否则高概率会漏掉对其他模块的回归影响。
+
 ### Step 2：侦察（自动，不暂停）
 
 1. 读取 `docs/project.yaml` 判断项目栈类型
@@ -73,6 +89,12 @@
 5. 代码结构分析：
    - 有 code-review-graph MCP → `query_graph_tool` 查依赖链和测试覆盖
    - 无 → 扫描相关模块代码
+
+**每加载一个 knowledge 文件，追加一条命中事件**到 `docs/workspace/.harness-metrics/knowledge-hits/{YYYY-MM}.jsonl`（供 `/metrics` 统计 Top/零命中）：
+
+```jsonl
+{"time":"2026-04-22T15:30:00Z","command":"/impl","file":"backend/api-conventions.md","bytes_loaded":2450}
+```
 
 ```
 📂 侦察完成：{N} 个相关文件，{M} 个 Knowledge 已加载
@@ -194,14 +216,35 @@ commit 完成后自动执行完整的会话记录，不需要手动触发 `/reco
 **6.3 Checklist 更新（如有）：**
 
 `docs/tasks/` 下有 checklist.md → 自动勾选完成项。
+如 `tasks.yaml` 存在且本次对应某个 task id → 把该 task 的 `status` 字段标为 `done`。
 
-**6.4 完成输出：**
+**6.4 回写 metrics 事件（必做）：**
+
+追加一条 impl 事件到 `docs/workspace/.harness-metrics/impl/{YYYY-MM}.jsonl`（按月滚动），供 `/metrics` 聚合：
+
+```jsonl
+{"time":"2026-04-22T15:30:00Z","developer":"{dev}","task_desc":"{任务简述}","task_size":"small","role":"backend|frontend|test","files_changed":3,"tests_added":2,"heal_cycles":1,"first_pass":false,"human_intervention":false,"intervention_reason":null,"commit_hash":"{short-hash}","duration_minutes":12,"knowledge_loaded":["backend/api-conventions.md","red-lines.md"],"knowledge_updated":["backend/sxp-framework.md"],"red_lines_triggered":[]}
+```
+
+字段说明：
+- `task_size`：本次走的分支——`small`（直接 /impl）或 `large`（转 /iterate）
+- `heal_cycles`：Step 4.3 和 4.4 的自愈轮次之和
+- `first_pass`：`heal_cycles == 0 && 无人工介入`
+- `human_intervention`：本次是否暂停过请人
+- `intervention_reason`：若暂停过，取值 `3_rounds_failed` / `env_issue` / `manual_op` / `spec_issue` / `large_task`；否则 `null`
+- `knowledge_loaded`：Step 2 实际读到的 knowledge 文件相对路径列表
+- `knowledge_updated`：Step 6.2 本次追加/修改的 knowledge 文件
+- `red_lines_triggered`：Step 4.1 红线扫描发现并自修的条目（自修完成的也要记，体现红线"拦住了"什么）
+
+如果本次因失败或人工介入提前终止，也要写一条 impl 事件（字段据实填写、`human_intervention: true`），不要因为"没完成"就不记——`/metrics` 的"人工介入率"靠这部分数据。
+
+**6.5 完成输出：**
 
 ```
 ✅ {任务描述}
 
 {N} 个文件 · {M} 个测试 · 自愈 {K} 轮 · commit {hash}
-Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无}
+Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无} · Metrics 已记录
 
 如需回滚：git revert {hash}
 ```
@@ -227,7 +270,9 @@ Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无
 ```
 /impl "{描述}"
   │
-  ├── [自动] 复杂度评估 → 大？暂停确认 → /iterate
+  ├── [自动] 复杂度评估
+  │       ├── 大 → 暂停确认 → /iterate → checklist.md + tasks.yaml → 人工跑 /run-tasks
+  │       └── 小 → 继续下面的小任务全自动流程
   │
   ├── [自动] 侦察
   ├── [自动] 计划 + 编码
@@ -236,7 +281,7 @@ Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无
   ├── [自动] 运行测试 → 失败自愈（≤3轮）
   ├── [自动] 回归验证 → 失败自愈（≤3轮）
   ├── [自动] git commit
-  ├── [自动] record-session（journal + knowledge + checklist）
+  ├── [自动] record-session（journal + knowledge + checklist + 回写 metrics）
   │
   └── ✅ 完成（含回滚指引）
 

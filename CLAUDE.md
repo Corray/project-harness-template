@@ -2,7 +2,9 @@
 
 ## 这个配置是什么
 
-这是项目仓库的 AI 辅助开发 Harness。通过 Claude Code 的自定义命令，将项目基线管理、迭代分析、详细设计、编码实现、代码校验、测试生成和经验沉淀结构化。
+这是项目仓库的 AI 辅助开发 Harness。通过 Claude Code 的自定义命令，将项目基线管理、迭代分析、详细设计、编码实现、代码校验、测试生成、对抗式评估和经验沉淀结构化。
+
+**读这个仓库前先看：[HARNESS_PHILOSOPHY.md](./HARNESS_PHILOSOPHY.md)** —— 它解释"为什么这么设计"，帮助你判断哪些规则可以改、哪些是骨架。
 
 ## 日常使用
 
@@ -23,13 +25,17 @@
 | `/impl` | **唯一入口** — 描述任务，AI 自动评估复杂度并执行 | 开发者手动 |
 | `/iterate` | 大任务的影响分析 + 任务清单生成 | 由 /impl 自动触发，或手动 |
 | `/design` | 生成详细设计 | 由 /iterate 后手动触发 |
-| `/run-tasks` | 批量循环执行 checklist 中的任务 | 由 /iterate 后手动触发 |
+| `/run-tasks` | 批量循环执行 checklist 中的任务；支持 **`--parallel N`** 并行 Worker（git worktree 隔离，按 `depends_on` 分波） | 由 /iterate 后手动触发 |
 | `/init-baseline` | 旧项目首次接入，生成基线 + 初始化 knowledge | 手动（一次性） |
-| `/review` | 结构化代码校验 | 由 /run-tasks 自动触发，或手动 |
+| `/review` | 结构化代码校验（Generator 自审） | 由 /run-tasks 自动触发，或手动 |
+| `/adversarial-review` | **独立 Evaluator** 对抗式评估（PR/Sprint 结束前，必须新开 session）；关键路径用 **`--oracle`** 双 Evaluator strict-AND | 手动 |
 | `/test-gen` | 基于设计契约单独生成测试 | 手动（/impl 已内置测试生成） |
 | `/preflight` | 提交前全面检查 | 手动 |
+| `/metrics` | Harness 运行指标聚合（首次通过率、Evaluator 分数、knowledge 命中等） | 手动（建议每周或 sprint 结束时） |
+| `/dashboard` | **跨项目看板** — 一屏看所有注册项目的指标 / 对抗评估 / Knowledge 命中 / 时间线 | 手动（随时） |
 | `/record-session` | 会话记录（journal + knowledge + checklist） | 由 /impl 和 /run-tasks 自动触发，通常不需要手动 |
 | `/spec-feedback` | 记录设计文档问题 | 手动 |
+| `/command-feedback` | **记录对 slash 命令本身的修改建议**（支持 `--collect` 聚合跨项目反馈） | 手动（踩到命令设计的坑时） |
 
 **典型工作流：**
 
@@ -42,6 +48,34 @@
 
 已有 checklist：
   /run-tasks backend → 循环执行 → ✅
+
+并行批处理（夜里跑大 sprint）：
+  /run-tasks backend --parallel 4 → 同波 4 个 worktree 并行 → ff-only 按拓扑序合并 → ✅
+
+PR / Sprint 合并前（推荐）：
+  【新开 session】/adversarial-review --branch feature/xxx → Evaluator 独立打分 → 必要时 fix-tasks.yaml
+
+关键路径双评审（支付/鉴权/资产/schema 迁移）：
+  【新开 session】/adversarial-review --branch feature/xxx --oracle
+    → 3 个 session：Evaluator-A（严格规范型）+ Evaluator-B（对抗反例型）+ Aggregator
+    → strict-AND：两者都 Approve 才算过；分差 >15 标 disagreement 请人亲审
+
+每周或 sprint 结束：
+  /metrics --days 7 → 看首次通过率、Evaluator 平均分、零命中 knowledge
+
+跨项目/整体趋势：
+  /dashboard --open → 浏览器打开单页 HTML，一屏对比所有注册项目
+
+反馈 harness 本身：
+  /command-feedback impl "Step 5 测试失败没进自愈就退出了"
+    → 记录到本项目 docs/feedback/commands/，在 /dashboard 的"命令反馈"Tab 可见
+
+一次性升级所有注册项目（harness 本身版本更新时）：
+  cd /path/to/project-harness-template
+  bash upgrade-all.sh --dry-run       # 预览会更新哪些项目
+  bash upgrade-all.sh                 # 执行（默认覆盖 + 自动 .bak 备份）
+  bash upgrade-all.sh --safe          # 改过命令的项目只生成 .new 旁注
+  bash upgrade-all.sh --only my-proj  # 只升级某个项目
 ```
 
 **使用提示：完成后发现问题怎么办？**
@@ -65,14 +99,21 @@ docs/
 ├── baseline/              # 项目基线（由 /init-baseline 生成）
 ├── consensus/             # 共识文档（从 ai-workflow 同步）或迭代共识文档（由 /iterate 生成）
 ├── design/                # 详细设计（由 /design 生成）
-├── tasks/                 # 任务追踪（由 /iterate 自动生成 checklist）
+├── tasks/                 # 任务追踪（由 /iterate 自动生成双视图）
 │   └── {sprint-name}/
 │       ├── iterate-consensus.md   # 迭代共识文档
-│       └── checklist.md           # 任务清单（可勾选）
+│       ├── checklist.md           # 任务清单（人类视角，可勾选）
+│       ├── tasks.yaml             # 任务清单（机器视角，verify 断言 /run-tasks 执行）
+│       └── fix-tasks.yaml         # 可选：/adversarial-review 判定 Must-Fix 时自动生成
 ├── feedback/              # Spec 反馈（开发过程中发现的设计问题）
-├── workspace/             # 开发者工作日志（按人隔离，跨 session 记忆）
-│   └── {developer-name}/
-│       └── journal.md     # 滚动更新的工作日志
+├── workspace/             # 开发者工作日志 + 指标事件
+│   ├── {developer-name}/
+│   │   └── journal.md     # 滚动更新的工作日志（跨 session 记忆）
+│   └── .harness-metrics/  # 结构化事件流（/metrics 聚合数据源）
+│       ├── impl/              *.jsonl
+│       ├── adversarial/       *.jsonl
+│       ├── run-tasks/         *.jsonl
+│       └── knowledge-hits/    *.jsonl
 └── project.yaml           # 项目元信息
 ```
 
@@ -91,6 +132,7 @@ docs/
 │   └── taro-patterns.md      # Taro + Vant 小程序规范
 ├── testing/
 │   └── standards.md          # 测试标准和覆盖要求
+├── collaboration.md          # 多 agent 并行协作规范（识别信号 + 自检 + 隔离姿势）
 └── red-lines.md              # 质量红线（所有角色通用）
 ```
 
@@ -98,12 +140,18 @@ docs/
 
 | 命令 | 后端任务加载 | 前端任务加载 | 测试任务加载 |
 |------|------------|------------|------------|
-| `/impl` | `backend/*` + `red-lines.md` | `frontend/*` + `red-lines.md` | `testing/*` + `red-lines.md` |
-| `/review` | `backend/*` + `red-lines.md` | `frontend/*` + `red-lines.md` | — |
+| `/impl` | `backend/*` + `collaboration.md` + `red-lines.md` | `frontend/*` + `collaboration.md` + `red-lines.md` | `testing/*` + `collaboration.md` + `red-lines.md` |
+| `/review` | `backend/*` + `collaboration.md` + `red-lines.md` | `frontend/*` + `collaboration.md` + `red-lines.md` | — |
 | `/design` | `backend/*` + `red-lines.md` | `frontend/*` + `red-lines.md` | `testing/*` + `red-lines.md` |
-| `/preflight` | `red-lines.md`（全量扫描） | `red-lines.md` | `red-lines.md` |
+| `/preflight` | `collaboration.md` + `red-lines.md`（全量扫描） | `collaboration.md` + `red-lines.md` | `collaboration.md` + `red-lines.md` |
+| `/run-tasks` | `collaboration.md` + `red-lines.md`（启动前自检时加载） | 同左 | 同左 |
+| `/adversarial-review` | **仅** `red-lines.md` + design + diff + tasks.yaml | 同左 | 同左 |
+
+**为什么 `collaboration.md` 要在多个命令里加载？** 它描述的是"多 agent / 多窗口并发共用工作区"时的识别信号和应急规范，所有**直接操作工作区**的命令（写代码 / 校验 / 批量执行 / 提交前检查）都可能触发相关情况。`/design` 和 `/adversarial-review` 不直接动工作区，所以不加载。
 
 如果 Claude 无法自动判断当前任务是后端/前端/测试，会询问开发者。
+
+**为什么 `/adversarial-review` 加载规则特别严格？** 它是独立 Evaluator，加载 backend/frontend 的 knowledge 反而会让它"帮 Generator 找理由过稿"。详见 [HARNESS_PHILOSOPHY.md](./HARNESS_PHILOSOPHY.md) 的三角色模型。
 
 ## 需求来源
 
@@ -179,8 +227,14 @@ code-review-graph build
 
 - **基线是真相源**：`/iterate` 和 `/design` 都依赖基线来理解现有系统，基线过时了及时 `/init-baseline --refresh`
 - **影响分析先于编码**：功能迭代先跑 `/iterate` 看清影响范围，再动手写代码
-- **约束是强制的**：`/review` 和 `/preflight` 的检查项不是建议，是必须通过的关卡
+- **完成标准是合约，不是感觉**：`tasks.yaml` 的 `verify` 断言必须全绿才算做完（防止 *premature closure*）
+- **约束是强制的**：`/review`、`/adversarial-review` 和 `/preflight` 的检查项不是建议，是必须通过的关卡；红线违反直接 Reject
+- **独立 Evaluator 对抗自迭代**：同一 agent 既写代码又审代码有偏见，所以 `/adversarial-review` 必须新开 session、不加载 journal；关键路径用 `--oracle` 两个差异化 Evaluator strict-AND 通过
+- **并行不破坏依赖**：`/run-tasks --parallel N` 按 `depends_on` 分波，同波任务在各自 git worktree 里跑，合并时严格走 ff-only 拓扑序（冲突走自愈循环，不允许 `--no-ff` 盖住）
 - **反馈要结构化**：开发过程中发现设计有问题，用 `/spec-feedback` 记录到 `docs/feedback/`
 - **按需加载上下文**：Knowledge 按领域分层，命令只加载相关的文件，不浪费上下文窗口
 - **每次会话留下痕迹**：journal 记录做了什么，下次不用从头解释
 - **Knowledge 持续进化**：开发中发现的新知识沉淀回 knowledge 文件，一个人的经验变成团队的资产
+- **靠数字做 Harness 决策**：定期跑 `/metrics` 看首次通过率、Evaluator 分数、零命中 knowledge——不靠感觉判断 harness 有没有进步
+
+更深入的设计哲学见 [HARNESS_PHILOSOPHY.md](./HARNESS_PHILOSOPHY.md)。

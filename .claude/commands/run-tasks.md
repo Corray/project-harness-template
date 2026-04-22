@@ -19,7 +19,19 @@ role: backend / frontend / test
 /run-tasks backend --developer {名字}    # 首次需要，之后自动记住
 /run-tasks backend --from 3              # 从第 3 个任务开始（跳过已完成的）
 /run-tasks backend --only 2,4            # 只执行第 2 和第 4 个任务
+/run-tasks backend --parallel 4          # 并行 Worker 模式（见下）
+/run-tasks backend --parallel 4 --max-parallel-fail 2
+/run-tasks backend --tasks-file fix-tasks.yaml   # 改用指定任务文件
 ```
+
+### --parallel N（并行 Worker 模式）
+
+同一"波"内最多 N 个独立任务并行跑，每个任务跑在独立的 `git worktree` 里（`.worktrees/{task.id}/`），完成后按 `depends_on` 拓扑序 `ff-only` 合并回 feature 分支。
+
+- N=1（默认）：退化为串行，行为与今天一致
+- N≥2：并行；`--auto-confirm` 默认开启（无法每任务交互确认）
+- 失败隔离：单任务失败不影响同波独立任务；失败数 ≥ `--max-parallel-fail`（默认 `ceil(N/2)`）才停 dispatch 新任务
+- 硬约束：`.worktrees/` 必须在 `.gitignore`；并发 N 超过 CPU*2 要求用户确认；合并顺序 = 拓扑序（不是完成顺序）
 
 ---
 
@@ -43,7 +55,44 @@ role: backend / frontend / test
 5. 按角色加载分层 Knowledge（与 /impl 相同策略）
 6. 读取 workspace journal 最近 5 条
 
-### Step 1.5：Git 分支管理
+### Step 1.5：启动前自检 + Git 分支管理
+
+#### 1.5.1 并发冲突自检（多 agent 协作保护）
+
+**在动任何分支前，先跑三条命令探测是否有另一 agent / 另一 Claude Code 窗口在并行操作此工作区：**
+
+```bash
+git status --porcelain   # 有非本任务的未提交改动？
+git stash list           # 有非本 session 的 stash？
+git reflog -n 10         # 最近有无来源的 reset / checkout / stash？
+```
+
+**异常信号匹配规则**（详见 `knowledge/collaboration.md`）：
+
+| 检查项 | 异常判定 |
+|---|---|
+| `git status --porcelain` 有输出 | 存在未提交改动；若改动的文件**不属于本 sprint 的责任范围**，判定异常 |
+| `git stash list` 有非本 session 的条目 | 陌生 stash message（不是你起过的、与当前任务无关） |
+| `git reflog -n 10` 出现无来源的 `reset: moving to HEAD` / `checkout: moving from X to Y` | 自己没执行过但历史里有，可能是对方 agent 操作 |
+
+**任一命中 → 暂停问人**，不要自作主张 `checkout .` / `reset --hard` / `clean -fd`：
+
+```
+⚠️ 检测到可能有另一 agent 在并行操作此工作区：
+  · 信号：{git status / git stash list / git reflog 里具体哪一条}
+  · 具体内容：{stash message / reflog 条目 / 陌生文件列表}
+
+如何处理？
+1. Y，启动独立 worktree（推荐，见 knowledge/collaboration.md 的 ④ 档）
+2. 已知情，继续（另一 agent 的工作已确认归属）
+3. 暂停，我自己先查清（退出 /run-tasks）
+```
+
+**并行模式下的例外**（`--parallel N>1`）：Worker 在自己的 `.worktrees/{task.id}` 里各自跑这套自检。主 checkout 的自检只需确认"没有人在主 checkout 里手工改东西"。
+
+**硬约束**（red-lines.md 编号 19）：无论是否有人在并行，都**禁止**用 `git checkout .` / `git clean -fd` / `git reset --hard` 丢掉陌生 WIP；应当 `git stash push -m "others-wip-possibly-from-agent-X"` 带标识暂存。
+
+#### 1.5.2 Git 分支管理
 
 **检查当前 git 状态：**
 
@@ -63,12 +112,12 @@ role: backend / frontend / test
    将在此分支上继续。
    ```
 
-3. 如果有未提交的改动：
+3. 如果有未提交的改动（且 1.5.1 自检判定为"本 session 合法 WIP"）：
    ```
-   ⚠️ 检测到未提交的改动（{N} 个文件）。
+   ⚠️ 检测到未提交的改动（{N} 个文件，已确认归属本 session）。
    建议先处理：
    1. 提交当前改动（git add + commit）
-   2. 暂存（git stash）
+   2. 暂存（git stash push -m "pre-run-tasks-{sprint}"）
    3. 忽略，继续执行
    ```
 
@@ -102,16 +151,91 @@ role: backend / frontend / test
 
 ### Step 3：任务循环
 
-对每个待执行的任务，自动触发 `/impl` 的完整流程：
+#### 3.0 串行 vs 并行的分叉
+
+- `--parallel 1`（默认）：按顺序一个个跑，工作在当前 checkout 上进行（下面 3.1~3.3 的老流程，不变）
+- `--parallel N`（N≥2）：进入 **并行 Worker 模式**，先拓扑分波，每波并行启动 N 个 Worker，见下方 3.0a
+
+#### 3.0a 并行调度（仅 `--parallel N>1`）
+
+**前置**：
+
+1. 检测 CPU 核数（`nproc` / `sysctl hw.ncpu`），N > cores*2 给警告并让用户确认
+2. 按 `tasks.yaml` 的 `depends_on` 拓扑排序切成若干波；同波任务互不依赖
+3. 确保 `.worktrees/` 在 `.gitignore`（缺则追加并提示 commit）
+4. 清理 `.worktrees/` 下的历史残留
+5. 让开发者确认一次："将开启 N 个并行 Worker，创建临时 worktree 于 .worktrees/，开始？(Y/N)"
+
+**每一波的执行**：
+
+```
+═════════════════════════
+🌊 Wave {i}/{total_waves}：{K} 个独立任务并行
+   并发上限：{N}；失败阈值：{max-parallel-fail}
+═════════════════════════
+
+启动 Worker（git worktree add 隔离）：
+  [Worker-1] T003 → .worktrees/T003/  (feature/{sprint}-{role}/T003)
+  [Worker-2] T004 → .worktrees/T004/  (feature/{sprint}-{role}/T004)
+  [Worker-3] T007 → .worktrees/T007/  (feature/{sprint}-{role}/T007)
+```
+
+每个 Worker 在子 shell 里：
+```bash
+cd .worktrees/{task.id}
+# 执行 3.1 /impl 全流程（--auto-confirm 强制开启）
+# 执行 verify 断言循环（≤3 轮自愈）
+# git commit 到 feature/{sprint}-{role}/{task.id} 子分支
+# 把结果写到 .worktrees/{task.id}/.worker-status.json
+```
+
+**实时反馈**（每 10-30 秒刷一次）：
+```
+🟢 T003 [Step D 生成代码]
+🟢 T004 [verify 2/4 通过]
+🟡 T007 [自愈第 2 轮]
+✅ T003 完成，commit c4d5e6f
+```
+
+**失败处理**：
+- 单 Worker 失败 → 标 `verdict: failed`，不影响同波其他独立任务
+- 失败数 ≥ `--max-parallel-fail` → 停止 dispatch 新任务，等正在跑的 Worker 收尾后汇总暂停
+- 下游依赖失败任务的 task → 自动标 `verdict: skipped-dep-failed`，不启动 Worker
+
+**一波结束后的合并**（主 checkout 上，按拓扑序而非完成顺序）：
+
+```
+🔀 合并 Wave {i} 的成功任务到 feature/{sprint}-{role}：
+  git merge --ff-only feature/{sprint}-{role}/T003  → ✅
+  git merge --ff-only feature/{sprint}-{role}/T004  → ✅
+  git merge --ff-only feature/{sprint}-{role}/T007  → ⚠️ non-ff（冲突）
+     → 冲突自愈循环（≤3 轮；仍不行则 stash 到 feature/conflict-T007 暂停请人）
+git worktree remove .worktrees/T003 T004 T007
+```
+
+合并完进入下一波。
+
+**硬约束（并行专属）**：
+1. `.worktrees/` 必须被 gitignore，严禁 worktree 目录进主分支
+2. 每任务一 branch：`feature/{sprint}-{role}/{task.id}`
+3. 拓扑依赖不可跨波：依赖未合并完的任务禁止启动 Worker
+4. 并发 N > CPU*2 必须开发者显式确认
+5. ff-only 失败时不许直接 `--no-ff`，先试 3 轮自愈
+6. 清理必须用 `git worktree remove`，禁止 `rm -rf`
+
+#### 3.1 每任务内部的完整流程（串行 + 并行通用）
+
+对每个任务（在 `.worktrees/{task.id}/` 或主 checkout 内）：
 
 ```
 ═══════════════════════════════════════
 📌 任务 {序号}/{总数}：{任务描述}
    验证标准：{从 checklist 中读取的验证标准}
+   模式：{串行 / 并行 Worker-N / worktree=.worktrees/{task.id}}
 ═══════════════════════════════════════
 ```
 
-#### 3.1 自动执行 /impl 流程（含 TDD 自愈循环）
+##### 3.1.a 自动执行 /impl 流程（含 TDD 自愈循环）
 
 每个任务内部的完整流程：
 - Step A：侦察（加载设计 + journal + 扫描代码）
@@ -133,7 +257,7 @@ role: backend / frontend / test
 - 需要人工操作（配置密钥、手动创建资源等）→ 给出具体命令
 - 发现是设计问题不是代码问题 → 建议 /spec-feedback
 
-#### 3.2 任务完成 → 自动 commit → 继续
+##### 3.1.b 任务完成 → 自动 commit → 继续
 
 **验证循环全部通过（测试绿了 + 回归绿了）：**
 ```
@@ -174,7 +298,7 @@ git commit -m "{project}: {任务描述} [#{序号}]
 2. 停止循环
 ```
 
-#### 3.3 任务间的连续性
+##### 3.1.c 任务间的连续性
 
 每个任务完成后，下一个任务的侦察步骤会自动读取：
 - 前一个任务刚写入的 journal 条目
@@ -282,6 +406,13 @@ git push origin feature/{分支名}
 - 写入 journal：本次循环执行了哪些任务、结果如何、每个任务的 commit hash
 - Knowledge 更新建议：整个循环过程中发现的可沉淀知识点
 - 更新 checklist 最终状态
+- metrics：追加一条到 `docs/workspace/.harness-metrics/impl/{YYYY-MM}.jsonl`，并行模式下额外写一条**波汇总**到 `docs/workspace/.harness-metrics/run-tasks/parallel-{YYYY-MM}.jsonl`：
+
+```jsonl
+{"time":"...","sprint":"...","role":"...","wave":1,"total_waves":3,"dispatched":5,"succeeded":4,"failed":1,"skipped_dep_failed":0,"concurrent_peak":5,"merge_conflicts":0,"duration_minutes":12}
+```
+
+每条 impl 事件额外补 `"parallel":{N},"wave":{i},"worktree":".worktrees/{task.id}"` 三个字段。
 
 ```
 📝 会话记录已保存
@@ -354,3 +485,38 @@ main ─────────────────────────
 - 每个任务一个 commit，commit message 包含验证标准结果
 - Review 修复的 commit 用 `fix:` 前缀标注
 - PR merge 时建议保留逐任务 commit（不 squash），方便精准回滚
+
+### 并行 Worker 模式（`--parallel N`）
+
+```
+main ───────────────────────────────────────── main
+       \                                /
+        feature/{sprint}-{role} ────────  PR merge
+         │       ↑       ↑       ↑
+         │       │       │       │（拓扑序 ff-only）
+         │       │       │       └─ feature/{sprint}-{role}/T007 (Worker-3, worktree)
+         │       │       └────────── feature/{sprint}-{role}/T004 (Worker-2, worktree)
+         │       └────────────────── feature/{sprint}-{role}/T003 (Worker-1, worktree)
+         └─ 主 checkout（最终合并产物）
+```
+
+**什么时候开并行**：
+- 任务之间大多独立（depends_on 疏松），但整体任务数 ≥ 4
+- CI 慢 + 任务多，串行要跑 2h+
+- 夜里批处理
+
+**什么时候不要开并行**：
+- 任务互相紧耦合（一个改了基础设施，后面全受影响）
+- 任务粒度太细（单任务 5 分钟以内，并行的 worktree 开销反而拖慢）
+- 本地机器资源紧张（CPU 少、内存小、测试是吞内存大户）
+
+**中断恢复**：并行模式中途被打断，下次 `/run-tasks --parallel N`：
+- 已合并到 feature 分支的任务 → 跳过（checklist 已勾选）
+- 子分支 `feature/{sprint}-{role}/{task.id}` 存在但未合并 → 提示是否直接 ff-only 合并
+- `.worktrees/{task.id}/` 残留 → 先清理再重建
+
+**中断清理脚本**：
+```bash
+git worktree list | grep .worktrees/ | awk '{print $1}' | xargs -I{} git worktree remove {} --force
+git branch --list 'feature/*/*' | xargs -I{} git branch -D {}   # 谨慎，务必先确认已合并
+```

@@ -43,3 +43,31 @@
 - Taro 项目不得使用 Web DOM API
 - 严格使用对应产品形态的 UI 组件库，不得混用
 - 组件库已提供的组件不得自行重写
+
+## 多 Agent 协作红线
+
+> 详细规范见 `collaboration.md`。以下为**硬约束**，触发即 Reject。
+
+**19. 禁止用破坏性命令清理陌生 WIP**
+碰到工作树里陌生的未提交改动、陌生的 stash、来源不明的 reflog 条目，**禁止**：
+- `git checkout .` / `git checkout -- <file>` 丢改动
+- `git clean -fd` / `git clean -fdx`
+- `git reset --hard HEAD`
+- `rm -rf .git` / `rm -rf <任何看起来"脏"的目录>`
+
+**正确做法**：`git stash push -m "others-wip-possibly-from-agent-X"` 带标识暂存，再查 reflog / 联系人 / 开 worktree 隔离。破坏性操作会直接毁掉对方 agent 数小时的工作。
+
+**20. 改完立即 commit（小原子单位）**
+不追求"先跑完全套测试再 commit"。每个小原子改动改完立即 commit，理由：
+- 缩短"未 commit 窗口"——这个窗口是多 agent 协作时最容易被对方误伤的时段
+- commit 本身就是 checkpoint，测试失败时 `git reset --soft HEAD^` 比"从未 commit 状态恢复"安全得多
+- 符合 `/run-tasks` 和 `/impl` 的"每任务一 commit"节奏
+
+**21. 启动任何工作前跑并发冲突自检**
+新 session / `/impl` 侦察 / `/run-tasks` Step B 必须跑：
+```bash
+git status --porcelain
+git stash list
+git reflog -n 10
+```
+任一命中异常信号必须暂停问人，不得自作主张处理。
