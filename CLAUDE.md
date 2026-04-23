@@ -55,6 +55,10 @@
 PR / Sprint 合并前（推荐）：
   【新开 session】/adversarial-review --branch feature/xxx → Evaluator 独立打分 → 必要时 fix-tasks.yaml
 
+小任务（/impl 直走路径）也要评审时：
+  【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
+    → /impl 完成时已自动写好 ad-hoc tasks.yaml，直接作为判据输入
+
 关键路径双评审（支付/鉴权/资产/schema 迁移）：
   【新开 session】/adversarial-review --branch feature/xxx --oracle
     → 3 个 session：Evaluator-A（严格规范型）+ Evaluator-B（对抗反例型）+ Aggregator
@@ -100,11 +104,14 @@ docs/
 ├── consensus/             # 共识文档（从 ai-workflow 同步）或迭代共识文档（由 /iterate 生成）
 ├── design/                # 详细设计（由 /design 生成）
 ├── tasks/                 # 任务追踪（由 /iterate 自动生成双视图）
-│   └── {sprint-name}/
-│       ├── iterate-consensus.md   # 迭代共识文档
-│       ├── checklist.md           # 任务清单（人类视角，可勾选）
-│       ├── tasks.yaml             # 任务清单（机器视角，verify 断言 /run-tasks 执行）
-│       └── fix-tasks.yaml         # 可选：/adversarial-review 判定 Must-Fix 时自动生成
+│   ├── {sprint-name}/                # 大任务：/iterate 产出
+│   │   ├── iterate-consensus.md      # 迭代共识文档
+│   │   ├── checklist.md              # 任务清单（人类视角，可勾选）
+│   │   ├── tasks.yaml                # 任务清单（机器视角，verify 断言 /run-tasks 执行）
+│   │   └── fix-tasks.yaml            # 可选：/adversarial-review 判定 Must-Fix 时自动生成
+│   └── ad-hoc/                       # 小任务：/impl 直走时自动生成
+│       └── {YYYY-MM-DD}-{slug}/
+│           └── tasks.yaml            # 供 /adversarial-review 做客观判据
 ├── feedback/              # Spec 反馈（开发过程中发现的设计问题）
 ├── workspace/             # 开发者工作日志 + 指标事件
 │   ├── {developer-name}/
@@ -227,7 +234,7 @@ code-review-graph build
 
 - **基线是真相源**：`/iterate` 和 `/design` 都依赖基线来理解现有系统，基线过时了及时 `/init-baseline --refresh`
 - **影响分析先于编码**：功能迭代先跑 `/iterate` 看清影响范围，再动手写代码
-- **完成标准是合约，不是感觉**：`tasks.yaml` 的 `verify` 断言必须全绿才算做完（防止 *premature closure*）
+- **完成标准是合约，不是感觉**：`tasks.yaml` 的 `verify` 断言必须全绿才算做完（防止 *premature closure*）。大任务由 `/iterate` 产出 `docs/tasks/{sprint}/tasks.yaml`；小任务走 `/impl` 直达路径时自动写 `docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml`——两条路径统一都有客观判据，`/adversarial-review` 才跑得起来
 - **约束是强制的**：`/review`、`/adversarial-review` 和 `/preflight` 的检查项不是建议，是必须通过的关卡；红线违反直接 Reject
 - **独立 Evaluator 对抗自迭代**：同一 agent 既写代码又审代码有偏见，所以 `/adversarial-review` 必须新开 session、不加载 journal；关键路径用 `--oracle` 两个差异化 Evaluator strict-AND 通过
 - **并行不破坏依赖**：`/run-tasks --parallel N` 按 `depends_on` 分波，同波任务在各自 git worktree 里跑，合并时严格走 ff-only 拓扑序（冲突走自愈循环，不允许 `--no-ff` 盖住）

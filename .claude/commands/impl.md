@@ -218,12 +218,72 @@ commit 完成后自动执行完整的会话记录，不需要手动触发 `/reco
 `docs/tasks/` 下有 checklist.md → 自动勾选完成项。
 如 `tasks.yaml` 存在且本次对应某个 task id → 把该 task 的 `status` 字段标为 `done`。
 
-**6.4 回写 metrics 事件（必做）：**
+**6.4 补写 ad-hoc tasks.yaml（小任务专用，必做）：**
+
+只在 Step 1 判定为**小任务**时执行；大任务由 `/iterate` 已经写过 `tasks.yaml`，跳过本步。
+
+**目的**：为后续 `/adversarial-review` 提供客观判据。`/adversarial-review` 的 Step 3「机械化执行 tasks.yaml 的 verify 断言」是防 *premature closure* 的强约束，没有 tasks.yaml 这一步就失效。小任务不能因为绕过 /iterate 就豁免客观判据。
+
+**写入位置**：`docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml`
+
+- `{slug}` 规则：任务描述转小写短横线，截 40 字符；中文直接取 commit message 第一行的 `{scope}`；两者都拿不到就用 `IMPL-{HHmmss}`
+- 同一天同一 slug 已存在时，追加 `-2` / `-3` 后缀
+- 单独目录避免小任务互相覆盖
+
+**内容模板**：
+
+```yaml
+# 由 /impl 自动生成（小任务路径）
+# 目的：为 /adversarial-review 提供 verify 断言
+sprint: ad-hoc
+source: /impl
+generated_at: 2026-04-22T15:30:00Z
+role: backend          # 自动判断：backend | frontend | testing
+branch: {当前分支名}
+commit: {short-hash}   # Step 5 刚生成的 commit
+
+tasks:
+  - id: IMPL-{YYYYMMDD-HHmmss}
+    desc: "{原始 /impl 描述}"
+    status: done
+    files_changed:
+      - {file 1 from git diff --name-only HEAD~1..HEAD}
+      - {file 2}
+    verify:
+      # 必须填：Step 4.3 实际跑过且 exit 0 的测试命令
+      - type: cmd
+        cmd: "{例如 mvn test -Dtest=OrderServiceTest}"
+      # 必须填：本次主要改动文件的关键行（新方法签名 / 新字段 / 新路由）
+      - type: file_contains
+        file: "{主要改动文件路径}"
+        pattern: "{关键标识，如方法签名、注解、路由路径}"
+      # 若 Step 4.4 跑过回归测试，也带上
+      - type: regression
+        scope: "{blast radius 模块名 或 'full'}"
+```
+
+**填写规则**：
+- `verify.cmd` **必须**是 Step 4.3 已经绿过的命令，不要写"未来应该跑"的命令
+- `verify.file_contains.pattern` 要选**本次 /impl 新增或关键修改**的标识（新方法名、新字段、新路由），不要选"本来就有"的行
+- 至少 1 条 `cmd` + 1 条 `file_contains`；如果 Step 4.4 回归验证跑了，再加 1 条 `regression`
+- 不许写"跳过"占位符——宁可少一条也不许假数据
+
+**后续使用**：
+
+```
+🧪 本次若需对抗评估，执行：
+  【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
+                  或
+  【新开 session】/adversarial-review --branch {当前分支}
+                  （后者会自动回查对应 ad-hoc/tasks.yaml）
+```
+
+**6.5 回写 metrics 事件（必做）：**
 
 追加一条 impl 事件到 `docs/workspace/.harness-metrics/impl/{YYYY-MM}.jsonl`（按月滚动），供 `/metrics` 聚合：
 
 ```jsonl
-{"time":"2026-04-22T15:30:00Z","developer":"{dev}","task_desc":"{任务简述}","task_size":"small","role":"backend|frontend|test","files_changed":3,"tests_added":2,"heal_cycles":1,"first_pass":false,"human_intervention":false,"intervention_reason":null,"commit_hash":"{short-hash}","duration_minutes":12,"knowledge_loaded":["backend/api-conventions.md","red-lines.md"],"knowledge_updated":["backend/sxp-framework.md"],"red_lines_triggered":[]}
+{"time":"2026-04-22T15:30:00Z","developer":"{dev}","task_desc":"{任务简述}","task_size":"small","role":"backend|frontend|test","files_changed":3,"tests_added":2,"heal_cycles":1,"first_pass":false,"human_intervention":false,"intervention_reason":null,"commit_hash":"{short-hash}","duration_minutes":12,"knowledge_loaded":["backend/api-conventions.md","red-lines.md"],"knowledge_updated":["backend/sxp-framework.md"],"red_lines_triggered":[],"tasks_yaml_path":"docs/tasks/ad-hoc/2026-04-22-fix-pagination/tasks.yaml"}
 ```
 
 字段说明：
@@ -235,17 +295,20 @@ commit 完成后自动执行完整的会话记录，不需要手动触发 `/reco
 - `knowledge_loaded`：Step 2 实际读到的 knowledge 文件相对路径列表
 - `knowledge_updated`：Step 6.2 本次追加/修改的 knowledge 文件
 - `red_lines_triggered`：Step 4.1 红线扫描发现并自修的条目（自修完成的也要记，体现红线"拦住了"什么）
+- `tasks_yaml_path`：`small` 任务为 Step 6.4 刚写的 ad-hoc tasks.yaml 路径；`large` 任务为 `/iterate` 产出的 sprint tasks.yaml 路径。**必填**，`/adversarial-review` 和 `/dashboard` 依赖该字段定位断言源。
 
 如果本次因失败或人工介入提前终止，也要写一条 impl 事件（字段据实填写、`human_intervention: true`），不要因为"没完成"就不记——`/metrics` 的"人工介入率"靠这部分数据。
 
-**6.5 完成输出：**
+**6.6 完成输出：**
 
 ```
 ✅ {任务描述}
 
 {N} 个文件 · {M} 个测试 · 自愈 {K} 轮 · commit {hash}
 Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无} · Metrics 已记录
+Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
 
+如需对抗评估：【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
 如需回滚：git revert {hash}
 ```
 
@@ -281,9 +344,10 @@ Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无
   ├── [自动] 运行测试 → 失败自愈（≤3轮）
   ├── [自动] 回归验证 → 失败自愈（≤3轮）
   ├── [自动] git commit
+  ├── [自动] 小任务补写 ad-hoc tasks.yaml（给 /adversarial-review 用）
   ├── [自动] record-session（journal + knowledge + checklist + 回写 metrics）
   │
-  └── ✅ 完成（含回滚指引）
+  └── ✅ 完成（含 ad-hoc tasks.yaml 路径 + 回滚指引 + /adversarial-review 指引）
 
   🛑 暂停 = 环境问题 / 3轮修不好 / 需人操作 / 设计问题 / 大任务确认
   其余一切自动。
