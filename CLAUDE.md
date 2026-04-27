@@ -175,6 +175,17 @@ docs/
 - **Jenkins MCP** — `/impl` Step 7、`/run-tasks` Step 7 询问后可选触发构建（默认 N，避免误触发）
 - **MySQL / MongoDB MCP**（可选）— 真实数据库测试。每个 DB 实例对应一个独立 server（`mysql-{name}` / `mongo-{name}`），用 `bash .claude/scripts/db-config.sh` 维护，**不要手改 .mcp.json**
 
+### DB 只读硬约束（Hook 拦截）
+
+`.claude/hooks/db-readonly-guard.py` 是 PreToolUse hook，匹配所有 `mcp__mysql-*__*` 和 `mcp__mongo-*__*` 工具调用，在请求到达 MCP server 之前就 deny 写操作：
+
+- **MySQL**：只放行 SELECT / SHOW / DESCRIBE / EXPLAIN / WITH（CTE 还会二次检查内部是否含写）
+- **MongoDB**：白名单 find / aggregate / count / distinct / list_collections 等只读方法
+
+任何 INSERT / UPDATE / DELETE / DROP / insertOne / updateOne 等都会被拦截，错误信息提示开发者改用 `test_db_strategy: docker`。
+
+**双层防护**：即使 hook 被绕过，`.mcp.json` 里引用的账号也必须是只读账号（红线 22-25 条）。
+
 ### 数据库 MCP 工作流
 
 ```bash

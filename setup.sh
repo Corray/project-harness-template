@@ -122,11 +122,34 @@ cp "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" ./HARNESS_PHILOSOPHY.md
 cp -r "$TEMPLATES_DIR/.claude/commands" ./.claude/
 cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
 # 复制 db-config.sh（per-project 数据库 MCP 配置工具，按需手跑）
-mkdir -p .claude/scripts
+mkdir -p .claude/scripts .claude/hooks
 cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ./.claude/scripts/db-config.sh
 chmod +x ./.claude/scripts/db-config.sh
 # 复制 dbs.yaml.example（启动类→DB 映射模板）
 cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
+# 复制 db 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
+cp "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ./.claude/hooks/db-readonly-guard.py
+chmod +x ./.claude/hooks/db-readonly-guard.py
+if [ ! -f "./.claude/settings.json" ]; then
+  cp "$TEMPLATES_DIR/.claude/settings.json" ./.claude/settings.json
+else
+  python3 - "$TEMPLATES_DIR/.claude/settings.json" "./.claude/settings.json" <<'PY'
+import json, sys
+tpl_path, dst_path = sys.argv[1:]
+tpl = json.load(open(tpl_path))
+try:
+    dst = json.load(open(dst_path))
+except Exception:
+    dst = {}
+dst.setdefault("hooks", {}).setdefault("PreToolUse", [])
+existing = dst["hooks"]["PreToolUse"]
+for new_entry in tpl.get("hooks", {}).get("PreToolUse", []):
+    matcher = new_entry.get("matcher")
+    if not any(e.get("matcher") == matcher for e in existing):
+        existing.append(new_entry)
+json.dump(dst, open(dst_path, "w"), indent=2, ensure_ascii=False)
+PY
+fi
 # 复制 .mcp.json（含 github / tapd / jenkins 模板）
 if [ ! -f ".mcp.json" ]; then
   cp "$TEMPLATES_DIR/.mcp.json" ./.mcp.json
@@ -148,6 +171,8 @@ echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/，含 /a
 echo "  - knowledge 分层已就位（.claude/knowledge/{backend,frontend,testing,red-lines.md}）"
 echo "  - .claude/scripts/db-config.sh 已就位（DB MCP 配置工具，按需跑）"
 echo "  - .claude/dbs.yaml.example 已就位（启动类→DB 映射模板）"
+echo "  - .claude/hooks/db-readonly-guard.py 已就位（DB MCP 写操作硬拦截）"
+echo "  - .claude/settings.json 已就位（hook 注册）"
 echo "  - .mcp.json 已就位（github / tapd / jenkins 三个 MCP server）"
 echo "  - docs/ 已就位（baseline / consensus / design / feedback / tasks / workspace，含 .gitkeep）"
 echo "  - docs/workspace/.harness-metrics/ 事件流目录骨架已就位（/metrics 数据源）"

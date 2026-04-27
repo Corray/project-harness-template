@@ -111,6 +111,8 @@ applications:
 
 ### 5. 红线
 
+- **DB MCP 强制只读，hook 自动拦截写操作** — `.claude/hooks/db-readonly-guard.py` 是 PreToolUse hook，匹配 `mcp__mysql-*__*` 和 `mcp__mongo-*__*`：MySQL 只放行 SELECT/SHOW/DESCRIBE/EXPLAIN，MongoDB 只放行 find/aggregate/count/distinct/list*。其他一律 deny。**因此 .mcp.json 里的账号也必须是只读的**（双层防护）。
+- **写测试不能走真实 DB MCP** — `test_db_strategy: docker` 时用 docker-compose 起本地 DB，绕开 MCP 直连，写操作正常进行。`shared` / `schema-isolated` 走真实 DB MCP，hook 会拦死所有写。
 - **跨启动类共享同一 DB 写操作时必须显式标注**（防一个 application 的测试污染另一个 application 的数据）
-- **test_db_strategy 是 `shared` 的库，写测试必须用 Tx 回滚或用独立 schema**（绝不允许提交到主库）
 - **新增启动类时同步更新 `.claude/dbs.yaml`**，否则下次 /test-gen 找不到对应 DB
+- **不得禁用 db-readonly-guard.py 或扩大白名单** — 见 red-lines.md 第 22-25 条

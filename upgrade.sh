@@ -175,6 +175,67 @@ fi
 # dbs.yaml.example：模板
 copy_if_missing "$TEMPLATES_DIR/.claude/dbs.yaml.example" "./.claude/dbs.yaml.example"
 
+# DB 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
+mkdir -p .claude/hooks
+if [ -f "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ]; then
+  if [ ! -f ".claude/hooks/db-readonly-guard.py" ] || ! cmp -s "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ".claude/hooks/db-readonly-guard.py"; then
+    if [ -f ".claude/hooks/db-readonly-guard.py" ] && [ $FORCE_REPLACE -eq 1 ]; then
+      cp ".claude/hooks/db-readonly-guard.py" ".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}"
+      BACKED_UP+=(".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}")
+    fi
+    cp "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" .claude/hooks/db-readonly-guard.py
+    chmod +x .claude/hooks/db-readonly-guard.py
+    if [ -f ".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}" ]; then
+      UPDATED+=(".claude/hooks/db-readonly-guard.py")
+    else
+      ADDED+=(".claude/hooks/db-readonly-guard.py")
+    fi
+  else
+    SKIPPED+=(".claude/hooks/db-readonly-guard.py（内容相同）")
+  fi
+fi
+
+# settings.json：merge hook 注册
+if [ ! -f ".claude/settings.json" ]; then
+  cp "$TEMPLATES_DIR/.claude/settings.json" .claude/settings.json
+  ADDED+=(".claude/settings.json（含 db-readonly hook 注册）")
+else
+  python3 - "$TEMPLATES_DIR/.claude/settings.json" "./.claude/settings.json" "$TIMESTAMP" <<'PY' >/tmp/upg-settings.$$ 2>&1
+import json, sys, shutil
+tpl_path, dst_path, ts = sys.argv[1:]
+try:
+    tpl = json.load(open(tpl_path))
+    dst = json.load(open(dst_path))
+except Exception as e:
+    print(f"merge skipped: {e}")
+    sys.exit(0)
+changed = False
+dst.setdefault("hooks", {}).setdefault("PreToolUse", [])
+existing = dst["hooks"]["PreToolUse"]
+for new_entry in tpl.get("hooks", {}).get("PreToolUse", []):
+    matcher = new_entry.get("matcher")
+    if not any(e.get("matcher") == matcher for e in existing):
+        existing.append(new_entry)
+        changed = True
+if changed:
+    bak = dst_path + ".bak." + ts
+    shutil.copy2(dst_path, bak)
+    json.dump(dst, open(dst_path, "w"), indent=2, ensure_ascii=False)
+    print("ADDED")
+    print("BAK:" + bak)
+else:
+    print("SKIPPED")
+PY
+  if grep -q '^ADDED' /tmp/upg-settings.$$ 2>/dev/null; then
+    ADDED+=(".claude/settings.json: db-readonly hook 注册")
+    bak_line=$(grep '^BAK:' /tmp/upg-settings.$$ | head -1 | sed 's/^BAK://')
+    [ -n "$bak_line" ] && BACKED_UP+=("$bak_line")
+  else
+    SKIPPED+=(".claude/settings.json（hook 已注册或无需变更）")
+  fi
+  rm -f /tmp/upg-settings.$$
+fi
+
 # Jenkins MCP：merge 进现有 .mcp.json（如不存在则整份复制）
 if [ ! -f ".mcp.json" ]; then
   cp "$TEMPLATES_DIR/.mcp.json" .mcp.json

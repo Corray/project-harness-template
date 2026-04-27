@@ -71,3 +71,15 @@ git stash list
 git reflog -n 10
 ```
 任一命中异常信号必须暂停问人，不得自作主张处理。
+
+## 数据库 MCP 红线
+
+> 真实 DB 通过 MCP 连接（`mysql-*` / `mongo-*`）时强制只读。`.claude/hooks/db-readonly-guard.py` 是 PreToolUse hook，写操作在到达 MCP 之前就被 deny。**该 hook 是硬约束的兜底，不可禁用。**
+
+**22. DB MCP 凭据必须是只读账号** — `.mcp.json` 里 `mysql-*` / `mongo-*` server 引用的 env var 必须指向只读账号（MySQL: 仅 SELECT；MongoDB: 仅 read role）。即使 hook 拦了写操作，如果账号本身有写权限，也属于配置违规，PR review 直接 Reject。
+
+**23. db-readonly-guard.py 不可禁用 / 修改放行规则** — 任何尝试在 `.claude/settings.json` 移除该 hook、或在 hook 脚本里把 INSERT/UPDATE/DELETE 等加进白名单的 PR，必须 Reject。
+
+**24. 写测试只能走 docker** — 测试需要写 DB 时，`.claude/dbs.yaml` 里 `test_db_strategy` 必须是 `docker`（用 docker-compose 起本地一次性 DB），**不能**走真实 DB MCP。强行走 MCP 会被 hook 拦死。
+
+**25. 绕过 hook 的尝试视为红线违反** — 直接 shell 调 `mysql` / `mongosh` 命令绕过 MCP 进行写操作，等同于绕过红线，PR Reject。如确实需要写真实库，由人手动操作并在 journal 中显式记录。

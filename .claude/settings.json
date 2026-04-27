@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__mysql-.*|mcp__mongo-.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/db-readonly-guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
