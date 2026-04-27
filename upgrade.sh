@@ -148,6 +148,73 @@ for cmd_file in "$TEMPLATES_DIR/.claude/commands/"*.md; do
   esac
 done
 
+# ----- Step 2.5: db-config.sh + Jenkins MCP + dbs.yaml.example -----
+echo ""
+echo -e "${GREEN}[2.5/4] 装 DB 配置工具 + Jenkins MCP 条目${NC}"
+
+# db-config.sh：装一份到项目，永远只在用户主动跑时执行
+mkdir -p .claude/scripts
+if [ -f "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ]; then
+  if [ ! -f ".claude/scripts/db-config.sh" ] || ! cmp -s "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ".claude/scripts/db-config.sh"; then
+    if [ -f ".claude/scripts/db-config.sh" ] && [ $FORCE_REPLACE -eq 1 ]; then
+      cp ".claude/scripts/db-config.sh" ".claude/scripts/db-config.sh.bak.${TIMESTAMP}"
+      BACKED_UP+=(".claude/scripts/db-config.sh.bak.${TIMESTAMP}")
+    fi
+    cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" .claude/scripts/db-config.sh
+    chmod +x .claude/scripts/db-config.sh
+    if [ -f ".claude/scripts/db-config.sh.bak.${TIMESTAMP}" ]; then
+      UPDATED+=(".claude/scripts/db-config.sh")
+    else
+      ADDED+=(".claude/scripts/db-config.sh")
+    fi
+  else
+    SKIPPED+=(".claude/scripts/db-config.sh（内容相同）")
+  fi
+fi
+
+# dbs.yaml.example：模板
+copy_if_missing "$TEMPLATES_DIR/.claude/dbs.yaml.example" "./.claude/dbs.yaml.example"
+
+# Jenkins MCP：merge 进现有 .mcp.json（如不存在则整份复制）
+if [ ! -f ".mcp.json" ]; then
+  cp "$TEMPLATES_DIR/.mcp.json" .mcp.json
+  ADDED+=(".mcp.json（含 github / tapd / jenkins）")
+else
+  python3 - "$TEMPLATES_DIR/.mcp.json" "./.mcp.json" "$TIMESTAMP" <<'PY' >/tmp/upg-mcp.$$ 2>&1
+import json, sys, shutil
+tpl_path, dst_path, ts = sys.argv[1:]
+try:
+    tpl = json.load(open(tpl_path))
+    dst = json.load(open(dst_path))
+except Exception as e:
+    print(f"merge skipped: {e}")
+    sys.exit(0)
+tpl_servers = tpl.get("mcpServers", {})
+dst.setdefault("mcpServers", {})
+added = []
+for name, body in tpl_servers.items():
+    if name == "jenkins" and name not in dst["mcpServers"]:
+        dst["mcpServers"][name] = body
+        added.append(name)
+if added:
+    bak = dst_path + ".bak." + ts
+    shutil.copy2(dst_path, bak)
+    json.dump(dst, open(dst_path, "w"), indent=2, ensure_ascii=False)
+    print("ADDED:" + ",".join(added))
+    print("BAK:" + bak)
+else:
+    print("SKIPPED")
+PY
+  if grep -q '^ADDED:' /tmp/upg-mcp.$$ 2>/dev/null; then
+    ADDED+=(".mcp.json: jenkins server")
+    bak_line=$(grep '^BAK:' /tmp/upg-mcp.$$ | head -1 | sed 's/^BAK://')
+    [ -n "$bak_line" ] && BACKED_UP+=("$bak_line")
+  else
+    SKIPPED+=(".mcp.json（jenkins 已存在或无需变更）")
+  fi
+  rm -f /tmp/upg-mcp.$$
+fi
+
 # ----- Step 3: 事件流目录 -----
 echo ""
 echo -e "${GREEN}[3/4] 创建事件流目录（/metrics 数据源）${NC}"
@@ -250,11 +317,20 @@ fi
 cat <<EOF
 ${BLUE}下一步建议：${NC}
   1. 通读新增的 HARNESS_PHILOSOPHY.md 理解 /adversarial-review、/metrics、/dashboard 的设计意图
-  2. 如有 .new 文件，逐个 diff 后合并（或去掉 --safe 让脚本自动覆盖 + 备份）
+  2. 如有 .new 文件，逐个 diff 后合并（主要是 impl.md / run-tasks.md，新增 Jenkins 询问步骤）；或去掉 --safe 让脚本自动覆盖 + 备份
   3. 可能需要手动更新的内容（本脚本不会自动动）：
      - CLAUDE.md：参考模板版加上 /adversarial-review、/metrics、/dashboard 到命令表
      - 已有 sprint 的 checklist.md 如需配合新流程，建议重新跑一次 /iterate --refresh-checklist 生成 tasks.yaml
-  4. 提交：git add -A && git commit -m "harness: upgrade to 2026-04 (adversarial-review + metrics + dashboard + tasks.yaml)"
+  4. ${YELLOW}配数据库 MCP（如要用）${NC}：bash .claude/scripts/db-config.sh
+     - 交互式新增 mysql/mongo MCP server，per-project 独立配置
+     - 可选 SSH 隧道（每个 DB 独立选）
+     - 详见 .claude/knowledge/testing/standards.md 的"多启动类 / 多数据源场景"
+  5. ${YELLOW}Jenkins 构建集成${NC}：在 ~/.zshrc 中添加：
+       export JENKINS_URL="https://jenkins.your-company.com"
+       export JENKINS_USER="your-user"
+       export JENKINS_API_TOKEN="xxx"
+     /impl 和 /run-tasks 完成后会问"是否触发构建（默认 N）"。
+  6. 提交：git add -A && git commit -m "harness: upgrade with jenkins/db MCP + db-config.sh"
 
 ${BLUE}验证安装：${NC}
   在项目里打开 Claude Code：

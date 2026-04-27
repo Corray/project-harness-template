@@ -312,6 +312,52 @@ Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
 如需回滚：git revert {hash}
 ```
 
+### Step 7：Jenkins 构建（可选，需询问）
+
+**触发条件**：
+
+- `.mcp.json` 中存在 `jenkins` server（没配就跳过本步，不打扰）
+- Step 5 已完成 commit（如未 commit 则跳过）
+
+**流程**：
+
+1. 询问开发者（**默认 N，避免误触发生产部署**）：
+
+   ```
+   🔨 当前已 commit。是否触发 Jenkins 构建？(y/N):
+   ```
+
+2. 选 y 后进一步询问：
+
+   - **Jenkins job 名**：如项目根有 `.claude/jenkins.yaml` 配 `default_job` 则提示默认值；否则要求开发者输入
+   - **构建分支**：默认 Step 5 commit 所在分支（自动取 `git rev-parse --abbrev-ref HEAD`）
+   - **构建参数**（可选）：如果该 job 接收参数，按 `key=value` 多行输入，回车结束
+
+3. 调用 `mcp__jenkins__build_job` 触发构建，记录返回的 build URL / build number
+
+4. 询问是否等待结果：
+
+   ```
+   ⏳ 等待构建完成？(y/N):
+   ```
+
+   - 选 y → 调用 `mcp__jenkins__get_build_status` 每 30 秒轮询一次（最多 30 分钟），直到终态（SUCCESS / FAILURE / ABORTED）
+   - 选 N → 输出 build URL，本命令结束（开发者后续自己看 Jenkins）
+
+5. 把 Jenkins 结果回填到 Step 6.5 写入的 impl 事件（**追加 `jenkins` 字段，不写新事件**）：
+
+   ```jsonl
+   {..., "jenkins": {"job":"{job}","build":42,"status":"SUCCESS","url":"https://..."}}
+   ```
+
+   构建未触发或选 N 时该字段为 `null`。
+
+**硬约束**：
+
+- 不主动触发，默认 N —— 防误触发生产部署
+- Jenkins 不可达 / 凭据不对 → 提示开发者检查 `JENKINS_URL` / `JENKINS_USER` / `JENKINS_API_TOKEN` 三个 env var，**不重试不假装成功**
+- 构建失败 ≠ /impl 失败 —— commit 已落，Jenkins 失败只是部署侧问题；不能因此回滚或抹掉 metrics
+
 ---
 
 ## 暂停条件（只有这些情况才打断开发者）

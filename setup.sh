@@ -121,6 +121,16 @@ cp "$TEMPLATES_DIR/CLAUDE.md" ./CLAUDE.md
 cp "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" ./HARNESS_PHILOSOPHY.md
 cp -r "$TEMPLATES_DIR/.claude/commands" ./.claude/
 cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
+# 复制 db-config.sh（per-project 数据库 MCP 配置工具，按需手跑）
+mkdir -p .claude/scripts
+cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ./.claude/scripts/db-config.sh
+chmod +x ./.claude/scripts/db-config.sh
+# 复制 dbs.yaml.example（启动类→DB 映射模板）
+cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
+# 复制 .mcp.json（含 github / tapd / jenkins 模板）
+if [ ! -f ".mcp.json" ]; then
+  cp "$TEMPLATES_DIR/.mcp.json" ./.mcp.json
+fi
 cp -r "$TEMPLATES_DIR/docs/." ./docs/
 
 # 创建 /metrics 事件流目录骨架（/impl、/run-tasks、/adversarial-review 会往这里写 jsonl）
@@ -136,6 +146,9 @@ echo "  - CLAUDE.md 已就位"
 echo "  - HARNESS_PHILOSOPHY.md 已就位（设计哲学，建议通读）"
 echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/，含 /adversarial-review、/metrics、/dashboard、/command-feedback）"
 echo "  - knowledge 分层已就位（.claude/knowledge/{backend,frontend,testing,red-lines.md}）"
+echo "  - .claude/scripts/db-config.sh 已就位（DB MCP 配置工具，按需跑）"
+echo "  - .claude/dbs.yaml.example 已就位（启动类→DB 映射模板）"
+echo "  - .mcp.json 已就位（github / tapd / jenkins 三个 MCP server）"
 echo "  - docs/ 已就位（baseline / consensus / design / feedback / tasks / workspace，含 .gitkeep）"
 echo "  - docs/workspace/.harness-metrics/ 事件流目录骨架已就位（/metrics 数据源）"
 echo "  - docs/project.yaml 占位模板已就位"
@@ -155,9 +168,22 @@ echo '  export TAPD_ACCESS_TOKEN="xxx"         # TAPD 需求/Bug 读取'
 echo '  export GITHUB_TOKEN="ghp_xxx"          # GitHub Issue/PR 读取'
 echo '  export FIGMA_API_KEY="figd_xxx"        # 如使用 Figma'
 echo '  export LANHU_TOKEN="xxx"               # 如使用蓝湖'
+echo '  export JENKINS_URL="https://jenkins.your-company.com"  # 如使用 Jenkins 自动构建'
+echo '  export JENKINS_USER="your-user"'
+echo '  export JENKINS_API_TOKEN="xxx"          # Jenkins → User → Configure → API Token'
 echo ""
 echo -e "${YELLOW}TAPD MCP 依赖 uv（Python 工具运行器），如未安装请先执行：${NC}"
 echo '  curl -LsSf https://astral.sh/uv/install.sh | sh'
+echo ""
+
+# ----- 数据库 MCP 配置（可选） -----
+read -p "现在配置数据库 MCP（mysql/mongo + 可选 SSH 隧道）吗？(y/N): " DBNOW
+if [ "$DBNOW" = "y" ] || [ "$DBNOW" = "Y" ]; then
+  bash ./.claude/scripts/db-config.sh
+else
+  echo -e "${YELLOW}已跳过。需要时随时执行：${NC}"
+  echo "  bash .claude/scripts/db-config.sh"
+fi
 echo ""
 
 # ----- 完成 -----

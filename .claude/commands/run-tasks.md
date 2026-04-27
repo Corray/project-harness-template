@@ -433,6 +433,43 @@ git push origin feature/{分支名}
 - /run-tasks {其他角色} — 如果你也负责其他角色的任务
 ```
 
+### Step 7：Jenkins 构建（可选，需询问）
+
+**触发条件**：
+
+- `.mcp.json` 中存在 `jenkins` server（没配就跳过）
+- 本次 PR 已成功 push 到 origin
+
+**流程**：
+
+1. 询问开发者（**默认 N**）：
+
+   ```
+   🔨 PR 已创建（{PR URL}）。是否触发 Jenkins 构建？(y/N):
+   ```
+
+2. 选 y → 询问：
+
+   - **Jenkins job 名**：如 `.claude/jenkins.yaml` 配 `default_job` 则用默认；否则要求开发者输入
+   - **构建分支**：默认 `feature/{sprint}-{role}`（即刚 push 的分支）
+   - **构建参数**（选填）：按 `key=value` 多行输入
+
+3. 调用 `mcp__jenkins__build_job` 触发，记录 build URL / number
+
+4. 询问是否等待结果（同 /impl Step 7 流程，30s 轮询，超时 30 分钟）
+
+5. 把 Jenkins 结果回填到 Step 6 写入的 run-tasks 事件（用 `jenkins` 字段，**不写新事件**）：
+
+   ```jsonl
+   {..., "jenkins": {"job":"{job}","build":42,"status":"SUCCESS","url":"https://..."}}
+   ```
+
+**硬约束**：
+
+- 默认 N，不主动触发 —— 防误触发部署
+- 构建失败不影响 PR 状态（PR 是开发者的产物，Jenkins 是部署的产物）
+- Jenkins 不可达 / 凭据不对 → 提示检查 env var，**不重试**
+
 ---
 
 ## 注意事项

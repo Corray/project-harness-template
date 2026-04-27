@@ -51,3 +51,66 @@
 - 优先修复业务代码（而非修改测试来让它通过）
 - 如果测试本身写错了（验证条件不对），才修改测试
 - 最多自愈 3 轮，修不好就暂停请人
+
+## 多启动类 / 多数据源场景
+
+如果项目里有多个 Spring Boot Application（每个连不同 DB），按以下流程：
+
+### 1. 配置 DB MCP
+
+每个 DB 实例对应 `.mcp.json` 中的一个独立 MCP server，**用 `.claude/scripts/db-config.sh` 维护**（不要手改 .mcp.json）：
+
+```bash
+cd 项目根
+bash .claude/scripts/db-config.sh         # 交互式新增/修改（per-project，幂等）
+bash .claude/scripts/db-config.sh --list  # 查看当前已配的 DB
+bash .claude/scripts/db-config.sh --remove mysql-order
+```
+
+它会自动维护 `.mcp.json`，并在选了 SSH 隧道时合并写入 `~/.ssh/config` 的 `Host db-tunnel` 段。
+
+### 2. 启动类 → DB 映射
+
+编辑 `.claude/dbs.yaml`（不存在时 db-config.sh 会建好骨架）：
+
+```yaml
+applications:
+  OrderApplication:
+    main_class: com.example.order.OrderApplication
+    module: order-service
+    databases:
+      mysql: mysql-order      # 引用 .mcp.json 里的 server 名
+      mongo: mongo-events
+    test_db_strategy: schema-isolated
+
+  UserApplication:
+    main_class: com.example.user.UserApplication
+    module: user-service
+    databases:
+      mysql: mysql-user
+    test_db_strategy: shared
+```
+
+### 3. 测试时找正确的 DB
+
+`/test-gen` 和 `/impl` Step 4（验证）按以下顺序解析：
+
+1. 读 `.claude/dbs.yaml`，找当前测试的启动类
+2. 拿到对应 server 名（如 `mysql-order`）
+3. 调用 `mcp__mysql-order__query`、`mcp__mongo-events__find` 等工具
+
+**单库项目**可以不写 dbs.yaml —— Claude 会按 `.mcp.json` 里第一个匹配类型的 server 走。
+
+### 4. 测试策略选择
+
+| `test_db_strategy` | 含义 | 适合 |
+|---|---|---|
+| `shared` | 直连配置的 DB | 只读测试 |
+| `schema-isolated` | 用前缀隔离 schema/database 名（如 `test_${branch}_${user}`） | 写测试 + 多人并行 |
+| `docker` | 跑测试时起 docker-compose 的本地 DB（不走 SSH 隧道） | 集成测试，最干净 |
+
+### 5. 红线
+
+- **跨启动类共享同一 DB 写操作时必须显式标注**（防一个 application 的测试污染另一个 application 的数据）
+- **test_db_strategy 是 `shared` 的库，写测试必须用 Tx 回滚或用独立 schema**（绝不允许提交到主库）
+- **新增启动类时同步更新 `.claude/dbs.yaml`**，否则下次 /test-gen 找不到对应 DB

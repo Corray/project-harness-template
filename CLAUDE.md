@@ -166,6 +166,30 @@ docs/
 - **GitHub Issue**：通过 GitHub MCP 读取 Issue 及评论
 - **手动输入**：开发者直接描述需求或粘贴内容
 
+## MCP 配置
+
+见 `.mcp.json`：
+
+- **GitHub MCP** — 读取 Issue、PR
+- **TAPD MCP** — 读取需求卡片（如使用 TAPD）
+- **Jenkins MCP** — `/impl` Step 7、`/run-tasks` Step 7 询问后可选触发构建（默认 N，避免误触发）
+- **MySQL / MongoDB MCP**（可选）— 真实数据库测试。每个 DB 实例对应一个独立 server（`mysql-{name}` / `mongo-{name}`），用 `bash .claude/scripts/db-config.sh` 维护，**不要手改 .mcp.json**
+
+### 数据库 MCP 工作流
+
+```bash
+# 一次性配置（per-project，幂等可重跑）
+bash .claude/scripts/db-config.sh             # 交互式新增/修改
+bash .claude/scripts/db-config.sh --list      # 查看已配
+bash .claude/scripts/db-config.sh --remove mysql-order
+```
+
+走 SSH 隧道的 DB 自动合并写入 `~/.ssh/config` 的 `Host db-tunnel` 段，可选装 launchd（mac）/ systemd-user（linux）后台服务。
+
+### 多启动类映射
+
+如果项目里多个 Application 各连不同 DB，编辑 `.claude/dbs.yaml` 把启动类映射到对应 server。详见 `.claude/knowledge/testing/standards.md` 的"多启动类 / 多数据源场景"章节。
+
 ## Workspace Journal（会话记忆）
 
 `docs/workspace/{developer-name}/journal.md` 是跨 session 的工作记忆：

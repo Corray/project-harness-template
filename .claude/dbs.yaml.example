@@ -1,0 +1,47 @@
+# 启动类 → 数据源映射模板
+#
+# 这个文件是模板，跑 .claude/scripts/db-config.sh 后会自动生成 .claude/dbs.yaml。
+# 你也可以直接 cp dbs.yaml.example dbs.yaml 然后手填。
+#
+# Claude 在 /impl、/test-gen、/run-tasks 处理某个启动类时，会按本表查到对应的 MCP server，
+# 然后调用 mcp__{server}__xxx 工具去连真实数据库（只读测试推荐用独立账号）。
+#
+# 单库项目可以不填 applications:，Claude 会按 .mcp.json 里第一个匹配类型的 server 走。
+
+applications:
+  # ─── 多启动类示例 ───────────────────────────────────────────────
+  # 一个项目里多个 Spring Boot Application，每个连不同的库
+
+  OrderApplication:
+    main_class: com.example.order.OrderApplication
+    module: order-service
+    databases:
+      mysql: mysql-order        # 引用 .mcp.json 里的 mcpServers.mysql-order
+      mongo: mongo-events       # 同时连 mongo 也可以
+    test_db_strategy: schema-isolated
+
+  UserApplication:
+    main_class: com.example.user.UserApplication
+    module: user-service
+    databases:
+      mysql: mysql-user
+    test_db_strategy: shared
+
+  BillingApplication:
+    main_class: com.example.billing.BillingApplication
+    module: billing-service
+    databases:
+      mysql: mysql-billing
+      mongo: mongo-logs
+    test_db_strategy: docker     # 集成测试用 docker-compose 起本地 DB
+
+# 测试策略 test_db_strategy 选项：
+#   shared          - 直接连配置的 DB（共享，做读测试 OK，写测试要小心或加 Tx 回滚）
+#   schema-isolated - 用独立 schema/database 名前缀做隔离（如 test_${branch}_${user}）
+#   docker          - 测试时用 docker-compose 起本地 DB（推荐做集成测试，最干净）
+
+# 由 db-config.sh 自动追加的 DB 清单（仅供参考，启动类映射要你手填到 applications 段）
+discovered_dbs:
+  # - name: mysql-order
+  #   type: mysql
+  #   target: 10.0.5.10:3306

@@ -185,6 +185,13 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 - **GitHub Issue**：通过 MCP 读取 Issue 及评论
 - **手动输入**：直接描述需求
 
+### 数据库 / Jenkins MCP（可选）
+
+`.mcp.json` 包含 GitHub / TAPD / Jenkins 三个默认 MCP server。需要数据库测试或自动构建时：
+
+- **数据库 MCP**：跑 `bash .claude/scripts/db-config.sh` 交互式新增 mysql/mongo server。每个 DB 实例独立配置（per-project），可选 SSH 隧道（每个 DB 独立选）。多启动类项目编辑 `.claude/dbs.yaml` 维护"启动类→DB"映射。详见 `.claude/knowledge/testing/standards.md`。
+- **Jenkins**：在 `~/.zshrc` 配 `JENKINS_URL` / `JENKINS_USER` / `JENKINS_API_TOKEN` 即可。`/impl` Step 7 和 `/run-tasks` Step 7 完成后会询问"是否触发构建（默认 N）"，避免误触发生产部署。
+
 ## 文档结构
 
 ```
