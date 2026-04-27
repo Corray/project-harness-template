@@ -440,35 +440,34 @@ git push origin feature/{分支名}
 - `.mcp.json` 中存在 `jenkins` server（没配就跳过）
 - 本次 PR 已成功 push 到 origin
 
-**流程**：
+**配置文件**：`.claude/jenkins.yaml`（参考 `.claude/jenkins.yaml.example`）。
+解析逻辑、占位符、模式判定、metrics 写回结构均与 **/impl Step 7 完全一致**，只在以下细节不同：
 
-1. 询问开发者（**默认 N**）：
+#### 7.1 询问语境
 
-   ```
-   🔨 PR 已创建（{PR URL}）。是否触发 Jenkins 构建？(y/N):
-   ```
+```
+🔨 PR 已创建（{PR URL}）。是否触发 Jenkins 构建？(y/N):
+```
 
-2. 选 y → 询问：
+默认 N。选 N → run-tasks 事件 `jenkins` 字段记 `null`。
 
-   - **Jenkins job 名**：如 `.claude/jenkins.yaml` 配 `default_job` 则用默认；否则要求开发者输入
-   - **构建分支**：默认 `feature/{sprint}-{role}`（即刚 push 的分支）
-   - **构建参数**（选填）：按 `key=value` 多行输入
+#### 7.2 默认分支
 
-3. 调用 `mcp__jenkins__build_job` 触发，记录 build URL / number
+参数解析时 `${git.branch}` 取刚 push 的 `feature/{sprint}-{role}` 分支（不取本地 HEAD）。
 
-4. 询问是否等待结果（同 /impl Step 7 流程，30s 轮询，超时 30 分钟）
+#### 7.3 模式 / 占位符 / 串行 / 输出 / metrics
 
-5. 把 Jenkins 结果回填到 Step 6 写入的 run-tasks 事件（用 `jenkins` 字段，**不写新事件**）：
+完全照抄 /impl Step 7.2–7.7 的实现。同一份 `.claude/jenkins.yaml` → 相同行为。
 
-   ```jsonl
-   {..., "jenkins": {"job":"{job}","build":42,"status":"SUCCESS","url":"https://..."}}
-   ```
+#### 7.4 与 /impl Step 7 的区别
 
-**硬约束**：
+- **入口节点不同**：/impl 是单任务 commit 完触发；/run-tasks 是 sprint 全部 push + PR 后触发一次（不是每个任务都触发）
+- **metrics 写到的事件不同**：写到 Step 6 的 `run-tasks/{YYYY-MM}.jsonl` 而非 `impl/{YYYY-MM}.jsonl`
+- **构建失败 ≠ PR 失败** —— PR 是开发者的产物，Jenkins 是部署的产物，两者状态独立
 
-- 默认 N，不主动触发 —— 防误触发部署
-- 构建失败不影响 PR 状态（PR 是开发者的产物，Jenkins 是部署的产物）
-- Jenkins 不可达 / 凭据不对 → 提示检查 env var，**不重试**
+#### 7.5 硬约束
+
+同 /impl Step 7.8（默认 N / 凭据错不重试 / 构建失败不影响 commit / 占位符严校验 / wait timeout / deploy 默认 wait: false）。
 
 ---
 

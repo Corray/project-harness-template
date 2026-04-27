@@ -1,0 +1,69 @@
+# .claude/jenkins.yaml — Jenkins 构建编排配置
+#
+# /impl Step K 和 /run-tasks Step H 完成 commit 后会读这个文件，
+# 询问开发者是否触发构建（默认 N）。选 y 后按本文件配置串行触发 Jenkins。
+#
+# 不存在此文件时，命令会退化为询问开发者输入单个 job 名（最简单情形）。
+# 把本文件 cp 成 .claude/jenkins.yaml 后改成你的真实 job 名即可启用。
+
+# ════════════════════════════════════════════════════════════════════════════
+# 模式 1：单 Pipeline job（推荐，如果你的 Jenkins 是 Pipeline / Multibranch）
+# ════════════════════════════════════════════════════════════════════════════
+# 取消下面注释，删掉模式 2 的 stages 段。Pipeline 内部的 stage 顺序由 Jenkinsfile 控制。
+#
+# default_job: my-app-pipeline             # 你的 Pipeline job 名
+# default_branch_param: BRANCH_NAME         # 传当前分支的参数名（可选）
+# wait: true                                # 等到终态再返回
+# parameters:                               # 触发时传给 Pipeline 的参数（可选）
+#   ENV: dev
+
+# ════════════════════════════════════════════════════════════════════════════
+# 模式 2：多 Freestyle job 串行（你当前用的就是这个）
+# ════════════════════════════════════════════════════════════════════════════
+# Claude 按 stages 顺序逐个调 mcp__jenkins__build_job：
+#   1. 第 N 阶段触发 → 拿到 build_number
+#   2. wait: true → 按 poll_interval_seconds 轮询 status，直到终态或超时
+#   3. status != SUCCESS && on_failure: stop → 停掉，跳过后续阶段
+#   4. wait: false → 触发完直接进下一阶段（典型场景：deploy 不阻塞 /impl）
+
+stages:
+  # ─── 阶段 1：构建打包 ───────────────────────────────────────────────────
+  - name: package
+    job: order-service-package          # ← 替换成你 Jenkins 里实际的打包 job 名
+    wait: true                           # 等打包完成再进 deploy 阶段
+    on_failure: stop                     # 打包失败就停，不继续
+    parameters:
+      BRANCH: "${git.branch}"            # Claude 自动填当前 git 分支
+      COMMIT: "${git.commit}"            # 当前 commit short hash（可选，便于追溯）
+
+  # ─── 阶段 2：构建发布 ───────────────────────────────────────────────────
+  - name: deploy
+    job: order-service-deploy           # ← 替换成你 Jenkins 里实际的发布 job 名
+    wait: false                          # ⚠️ deploy 默认不阻塞 /impl（红线 26）
+                                         # 想等 deploy 完才返回时才设 true
+    on_failure: stop                     # （wait: true 时才有意义；wait: false 时无效）
+    parameters:
+      ARTIFACT_BUILD: "${stages.package.build_number}"
+                                         # 引用 package 阶段的 build number，
+                                         # 你的 deploy job 用 Copy Artifact 拉对应产物
+      BRANCH: "${git.branch}"
+      ENV: dev                           # 默认环境；选 y 触发时可在交互里改
+
+# ════════════════════════════════════════════════════════════════════════════
+# 全局选项
+# ════════════════════════════════════════════════════════════════════════════
+poll_interval_seconds: 30                 # 轮询 wait: true 阶段状态的间隔
+timeout_minutes: 30                       # 单个 wait 阶段的超时（独立计时）
+                                          # 超时后记 status: TIMEOUT 进下一阶段（或停）
+
+# ════════════════════════════════════════════════════════════════════════════
+# 占位符（parameters 里可用）
+# ════════════════════════════════════════════════════════════════════════════
+# ${git.branch}                          - 当前 git 分支
+# ${git.commit}                          - 当前 commit short hash（7 位）
+# ${git.author}                          - 当前 commit 作者
+# ${stages.X.build_number}               - 阶段 X 的 Jenkins build number
+# ${stages.X.url}                        - 阶段 X 的 build URL
+# ${stages.X.status}                     - 阶段 X 的最终 status（SUCCESS/FAILURE/TIMEOUT/TRIGGERED）
+#
+# 引用未执行或不存在的阶段会报错退出。

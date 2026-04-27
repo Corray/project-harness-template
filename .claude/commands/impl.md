@@ -319,44 +319,126 @@ Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
 - `.mcp.json` 中存在 `jenkins` server（没配就跳过本步，不打扰）
 - Step 5 已完成 commit（如未 commit 则跳过）
 
-**流程**：
+**配置文件**：`.claude/jenkins.yaml`（参考 `.claude/jenkins.yaml.example`）。
+不存在该文件时退化为询问开发者输入单个 job 名。
 
-1. 询问开发者（**默认 N，避免误触发生产部署**）：
+#### 7.1 询问开发者（**默认 N，避免误触发生产部署**）
 
-   ```
-   🔨 当前已 commit。是否触发 Jenkins 构建？(y/N):
-   ```
+```
+🔨 当前已 commit ({short-hash})。是否触发 Jenkins 构建？(y/N):
+```
 
-2. 选 y 后进一步询问：
+选 N → 在 Step 6.5 写入的 impl 事件 `jenkins` 字段记 `null`，跳到"暂停条件"段。
 
-   - **Jenkins job 名**：如项目根有 `.claude/jenkins.yaml` 配 `default_job` 则提示默认值；否则要求开发者输入
-   - **构建分支**：默认 Step 5 commit 所在分支（自动取 `git rev-parse --abbrev-ref HEAD`）
-   - **构建参数**（可选）：如果该 job 接收参数，按 `key=value` 多行输入，回车结束
+#### 7.2 加载 .claude/jenkins.yaml 判定模式
 
-3. 调用 `mcp__jenkins__build_job` 触发构建，记录返回的 build URL / build number
+```
+if 文件不存在:
+    询问 job 名 → 走 "单 job 模式"
+elif 含 default_job 字段:
+    走 "单 job 模式"，job=default_job
+elif 含 stages: 数组:
+    走 "多 Freestyle 串行模式"
+else:
+    报错：jenkins.yaml 既无 default_job 也无 stages，跳过本步
+```
 
-4. 询问是否等待结果：
+#### 7.3 占位符解析
 
-   ```
-   ⏳ 等待构建完成？(y/N):
-   ```
+| 占位符 | 取值 |
+|---|---|
+| `${git.branch}` | `git rev-parse --abbrev-ref HEAD` |
+| `${git.commit}` | `git rev-parse --short HEAD`（7 位） |
+| `${git.author}` | `git log -1 --format=%an` |
+| `${stages.X.build_number}` | 已执行阶段 X 的 build number |
+| `${stages.X.url}` | 已执行阶段 X 的 build URL |
+| `${stages.X.status}` | 已执行阶段 X 的 status |
 
-   - 选 y → 调用 `mcp__jenkins__get_build_status` 每 30 秒轮询一次（最多 30 分钟），直到终态（SUCCESS / FAILURE / ABORTED）
-   - 选 N → 输出 build URL，本命令结束（开发者后续自己看 Jenkins）
+引用**未执行 / 未来 / 不存在**的阶段 → 报错退出，不假数据。
 
-5. 把 Jenkins 结果回填到 Step 6.5 写入的 impl 事件（**追加 `jenkins` 字段，不写新事件**）：
+#### 7.4 单 job 模式
 
-   ```jsonl
-   {..., "jenkins": {"job":"{job}","build":42,"status":"SUCCESS","url":"https://..."}}
-   ```
+```
+build_number, build_url = mcp__jenkins__build_job(default_job, parameters)
+if wait（默认 true）:
+    每 poll_interval_seconds（默认 30s）轮询 mcp__jenkins__get_build_status
+    直到终态（SUCCESS / FAILURE / ABORTED / UNSTABLE）或超时（timeout_minutes 默认 30）
+    超时记 status=TIMEOUT
+```
 
-   构建未触发或选 N 时该字段为 `null`。
+#### 7.5 多 Freestyle 串行模式（你当前的场景：package → deploy）
 
-**硬约束**：
+```python
+stages_result = {}   # name -> {build_number, url, status}
+overall = "SUCCESS"
 
-- 不主动触发，默认 N —— 防误触发生产部署
-- Jenkins 不可达 / 凭据不对 → 提示开发者检查 `JENKINS_URL` / `JENKINS_USER` / `JENKINS_API_TOKEN` 三个 env var，**不重试不假装成功**
-- 构建失败 ≠ /impl 失败 —— commit 已落，Jenkins 失败只是部署侧问题；不能因此回滚或抹掉 metrics
+for stage in stages:
+    params = resolve_placeholders(stage.parameters, stages_result)
+    build_number, url = mcp__jenkins__build_job(stage.job, params)
+    stages_result[stage.name] = {"build_number": ..., "url": ..., "status": "TRIGGERED"}
+
+    if stage.wait:
+        # 轮询直到终态或超时
+        status = poll_until_terminal(stage.job, build_number,
+                                     poll_interval_seconds, timeout_minutes)
+        stages_result[stage.name]["status"] = status
+        if status != "SUCCESS":
+            overall = status
+            if stage.on_failure == "stop":
+                break  # 后续阶段全标 SKIPPED
+    # wait: false → status 保持 TRIGGERED，进下一阶段
+```
+
+**为何 deploy 通常 `wait: false`**：deploy job 可能跑很久（升级、健康检查等），阻塞 /impl 体验差。触发完拿到 URL 即可，开发者后续自己看。
+
+#### 7.6 输出格式
+
+```
+🔨 Jenkins 构建结果
+
+✓ package: SUCCESS (#42, https://jenkins.../package/42/)  [waited 3m12s]
+✓ deploy:  TRIGGERED (#15, https://jenkins.../deploy/15/) [no wait]
+
+整体: SUCCESS（package 通过，deploy 已触发不等待）
+```
+
+失败示例：
+```
+✗ package: FAILURE (#43, https://jenkins.../package/43/)  [waited 1m22s]
+- deploy:  SKIPPED（上游失败 + on_failure=stop）
+
+整体: FAILURE
+失败日志（前 30 行）：
+{粘贴 mcp__jenkins__get_console_output 截取的关键行}
+```
+
+#### 7.7 写回 metrics 事件
+
+把每阶段结果聚合到 Step 6.5 写入的 impl 事件的 `jenkins` 字段（**追加，不写新事件**）：
+
+```jsonl
+{..., "jenkins": {
+  "mode": "freestyle_chain",
+  "stages": [
+    {"name":"package","job":"order-service-package","build":42,"status":"SUCCESS","url":"...","duration_seconds":192},
+    {"name":"deploy","job":"order-service-deploy","build":15,"status":"TRIGGERED","url":"..."}
+  ],
+  "overall": "SUCCESS"
+}}
+```
+
+`overall` 规则：所有 wait: true 阶段都 SUCCESS（含未触发到的 SKIPPED 不算 SUCCESS） → SUCCESS；否则取第一个非 SUCCESS 的 status。
+
+未触发或 7.1 选 N → `jenkins: null`。
+
+#### 7.8 硬约束
+
+- **默认 N，不主动触发** —— 防误触发生产部署
+- **Jenkins 不可达 / 凭据错** → 提示检查 `JENKINS_URL` / `JENKINS_USER` / `JENKINS_API_TOKEN`，**不重试不假装成功**
+- **构建失败 ≠ /impl 失败** —— commit 已落，Jenkins 失败只是部署侧问题
+- **占位符引用未执行阶段** → 报错退出
+- **wait: true 超时**（默认 30min）→ 记 status=TIMEOUT，按 on_failure 处理
+- **deploy 阶段默认 `wait: false`**（红线 26）
 
 ---
 

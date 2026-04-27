@@ -83,3 +83,15 @@ git reflog -n 10
 **24. 写测试只能走 docker** — 测试需要写 DB 时，`.claude/dbs.yaml` 里 `test_db_strategy` 必须是 `docker`（用 docker-compose 起本地一次性 DB），**不能**走真实 DB MCP。强行走 MCP 会被 hook 拦死。
 
 **25. 绕过 hook 的尝试视为红线违反** — 直接 shell 调 `mysql` / `mongosh` 命令绕过 MCP 进行写操作，等同于绕过红线，PR Reject。如确实需要写真实库，由人手动操作并在 journal 中显式记录。
+
+## Jenkins 构建红线
+
+> `.claude/jenkins.yaml` 是 /impl Step 7 和 /run-tasks Step 7 的输入。配置不当会让 Claude 误触发生产部署或 hang 住等待。
+
+**26. deploy 阶段默认 `wait: false`** — `.claude/jenkins.yaml` 的 stages 中，名字含 deploy / publish / release / push 等部署语义的阶段必须 `wait: false`（触发完就走，不等结果）。强制同步等待 deploy 会导致 /impl 长时间 hang，严重影响开发体感。如确需同步，必须在 PR 描述中显式说明原因。
+
+**27. Jenkins MCP 凭据 token 必须最小权限** — `JENKINS_API_TOKEN` 对应的 Jenkins 用户只需要本项目相关 job 的 Build / Read 权限，禁止给 Administer 或 RunScripts。
+
+**28. 占位符不允许填空字符串假装通过** — `${stages.X.build_number}` 等引用必须能解析到真实值；引用未执行 / 未来 / 不存在的阶段一律报错退出，不允许填 `""` 或 `0` 假装继续。
+
+**29. Jenkins 失败不能掩盖 commit / metrics 写入失败** — 即使 Step 7 整体失败，Step 5 (commit) / Step 6 (record-session) / Step 6.5 (metrics) 必须已经写完。Jenkins 是 commit 之后的副作用，不可逆向影响 commit 决策。

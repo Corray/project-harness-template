@@ -127,6 +127,8 @@ cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ./.claude/scripts/db-config.sh
 chmod +x ./.claude/scripts/db-config.sh
 # 复制 dbs.yaml.example（启动类→DB 映射模板）
 cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
+# 复制 jenkins.yaml.example（Jenkins 构建编排模板）
+cp "$TEMPLATES_DIR/.claude/jenkins.yaml.example" ./.claude/jenkins.yaml.example 2>/dev/null || true
 # 复制 db 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
 cp "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ./.claude/hooks/db-readonly-guard.py
 chmod +x ./.claude/hooks/db-readonly-guard.py
@@ -171,6 +173,7 @@ echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/，含 /a
 echo "  - knowledge 分层已就位（.claude/knowledge/{backend,frontend,testing,red-lines.md}）"
 echo "  - .claude/scripts/db-config.sh 已就位（DB MCP 配置工具，按需跑）"
 echo "  - .claude/dbs.yaml.example 已就位（启动类→DB 映射模板）"
+echo "  - .claude/jenkins.yaml.example 已就位（Jenkins 构建编排模板）"
 echo "  - .claude/hooks/db-readonly-guard.py 已就位（DB MCP 写操作硬拦截）"
 echo "  - .claude/settings.json 已就位（hook 注册）"
 echo "  - .mcp.json 已就位（github / tapd / jenkins 三个 MCP server）"

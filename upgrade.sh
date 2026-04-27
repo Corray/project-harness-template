@@ -175,6 +175,9 @@ fi
 # dbs.yaml.example：模板
 copy_if_missing "$TEMPLATES_DIR/.claude/dbs.yaml.example" "./.claude/dbs.yaml.example"
 
+# jenkins.yaml.example：Jenkins 构建编排模板
+copy_if_missing "$TEMPLATES_DIR/.claude/jenkins.yaml.example" "./.claude/jenkins.yaml.example"
+
 # DB 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
 mkdir -p .claude/hooks
 if [ -f "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ]; then

@@ -172,7 +172,7 @@ docs/
 
 - **GitHub MCP** — 读取 Issue、PR
 - **TAPD MCP** — 读取需求卡片（如使用 TAPD）
-- **Jenkins MCP** — `/impl` Step 7、`/run-tasks` Step 7 询问后可选触发构建（默认 N，避免误触发）
+- **Jenkins MCP** — `/impl` Step 7、`/run-tasks` Step 7 询问后可选触发构建（默认 N，避免误触发）。多 Freestyle job 串行（package → deploy）通过 `.claude/jenkins.yaml` 编排，详见 `.claude/jenkins.yaml.example`。占位符 `${git.branch}` / `${stages.X.build_number}` 由命令解析填充。deploy 阶段默认 `wait: false`（红线 26）
 - **MySQL / MongoDB MCP**（可选）— 真实数据库测试。每个 DB 实例对应一个独立 server（`mysql-{name}` / `mongo-{name}`），用 `bash .claude/scripts/db-config.sh` 维护，**不要手改 .mcp.json**
 
 ### DB 只读硬约束（Hook 拦截）
