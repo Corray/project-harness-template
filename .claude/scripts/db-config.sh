@@ -92,7 +92,7 @@ for name, s in dbs:
         port = env.get("MYSQL_PORT", "?")
     else:
         kind = "mongo"
-        uri = env.get("MONGODB_URI", "")
+        uri = env.get("MDB_MCP_CONNECTION_STRING", "")
         host = "127.0.0.1" if "@127.0.0.1:" in uri or "@localhost:" in uri else "(嵌在 URI 中)"
         port = "(嵌在 URI 中)"
     is_local = host in ("127.0.0.1", "localhost")
@@ -487,12 +487,13 @@ interactive_add() {
     # 构造 server JSON
     local server_json
     if [ "$kind" = "mysql" ]; then
+      # MCP: @liangshanli/mcp-server-mysql（已验证存在于 npm）
       server_json=$(python3 - "$effective_host" "$effective_port" "$user_env" "$pwd_env" "$dbname" <<'PY'
 import json, sys
 host, port, ue, pe, db = sys.argv[1:]
 print(json.dumps({
     "command": "npx",
-    "args": ["-y", "@executeautomation/mcp-server-mysql"],
+    "args": ["-y", "@liangshanli/mcp-server-mysql"],
     "env": {
         "MYSQL_HOST": host,
         "MYSQL_PORT": str(port),
@@ -504,6 +505,8 @@ print(json.dumps({
 PY
 )
     else
+      # MCP: mongodb-mcp-server（包用 MDB_MCP_* 前缀；
+      # 本脚本默认用 MDB_MCP_CONNECTION_STRING 装 URI，配合包 README 验证）
       server_json=$(python3 - "$effective_host" "$effective_port" "$user_env" "$pwd_env" "$dbname" <<'PY'
 import json, sys
 host, port, ue, pe, db = sys.argv[1:]
@@ -512,7 +515,7 @@ print(json.dumps({
     "command": "npx",
     "args": ["-y", "mongodb-mcp-server"],
     "env": {
-        "MONGODB_URI": uri
+        "MDB_MCP_CONNECTION_STRING": uri
     }
 }))
 PY

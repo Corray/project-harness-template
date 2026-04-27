@@ -22,7 +22,7 @@
     },
     "jenkins": {
       "command": "npx",
-      "args": ["-y", "mcp-server-jenkins"],
+      "args": ["-y", "@kud/mcp-jenkins@latest"],
       "env": {
         "JENKINS_URL": "${JENKINS_URL}",
         "JENKINS_USER": "${JENKINS_USER}",
