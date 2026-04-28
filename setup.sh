@@ -125,9 +125,10 @@ cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
 mkdir -p .claude/scripts .claude/hooks
 cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ./.claude/scripts/db-config.sh
 chmod +x ./.claude/scripts/db-config.sh
-# 复制 log-query.sh（远程日志查询工具，按需手跑或由 Claude 调用）
+# 复制 log-query.py + log-query.sh（远程日志查询工具，paramiko + 密码 env var）
+cp "$TEMPLATES_DIR/.claude/scripts/log-query.py" ./.claude/scripts/log-query.py
 cp "$TEMPLATES_DIR/.claude/scripts/log-query.sh" ./.claude/scripts/log-query.sh
-chmod +x ./.claude/scripts/log-query.sh
+chmod +x ./.claude/scripts/log-query.py ./.claude/scripts/log-query.sh
 # 复制 dbs.yaml.example（启动类→DB 映射模板）
 cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
 # 复制 jenkins.yaml.example（Jenkins 构建编排模板）

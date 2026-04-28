@@ -201,22 +201,32 @@ bash .claude/scripts/db-config.sh --remove mysql-order
 
 如果项目里多个 Application 各连不同 DB，编辑 `.claude/dbs.yaml` 把启动类映射到对应 server。详见 `.claude/knowledge/testing/standards.md` 的"多启动类 / 多数据源场景"章节。
 
-## 远程日志查询（log-query.sh）
+## 远程日志查询（log-query.py）
 
-排查线上问题时，Claude 可以通过 `bash .claude/scripts/log-query.sh` 拉取远程服务器日志（**只读**，不依赖 MCP）：
+排查线上问题时，Claude 可以通过 `.claude/scripts/log-query.py` 拉取远程服务器日志（**只读**，不依赖 MCP）。**用 paramiko + 用户名密码鉴权**，匹配项目里 `login_consum.py` 的接入方式：
 
 ```bash
-bash .claude/scripts/log-query.sh --add                        # 交互式新增 target（host + user + paths + 可选 bastion）
-bash .claude/scripts/log-query.sh --list                       # 列已配 target
-bash .claude/scripts/log-query.sh --target prod-app --tail 200 # 拉最后 200 行
-bash .claude/scripts/log-query.sh --target prod-app --grep "OutOfMemory" --context 10
-bash .claude/scripts/log-query.sh --target prod-app --grep "ERROR" --grep-v "expected"
-bash .claude/scripts/log-query.sh --files prod-app             # 只列日志文件，不取内容
+python3 .claude/scripts/log-query.py --add                        # 交互式新增 target
+python3 .claude/scripts/log-query.py --list                       # 列已配 target（含密码 env var 设置状态）
+python3 .claude/scripts/log-query.py --target prod-app --tail 200 # 拉最后 200 行
+python3 .claude/scripts/log-query.py --target prod-app --grep "OutOfMemory" --context 10
+python3 .claude/scripts/log-query.py --target prod-app --grep "ERROR" --grep-v "expected"
+python3 .claude/scripts/log-query.py --files prod-app             # 只列日志文件，不取内容
+
+# 兼容旧用法（bash 薄壳，内部 exec python3 log-query.py）
+bash .claude/scripts/log-query.sh --target prod-app --tail 200
 ```
 
-配置在 `.claude/logs.yaml`（参考 `.claude/logs.yaml.example`），含 host / user / port / key / 可选 bastion（ProxyJump 跳板）/ paths / 可选 default_grep_v。
+配置在 `.claude/logs.yaml`（参考 `.claude/logs.yaml.example`），含 host / user / port / **password_env**（密码所在 env var 名，不是密码本身）/ paths / 可选 default_grep_v。
 
-**安全**：脚本只构造 `tail / grep / cat / zcat / ls` 这类 read-only 命令；path 和 pattern 经字符校验防注入；不存任何凭据，全靠你 `~/.ssh` 下的私钥。`.claude/logs.yaml` 不含 secret，可以 commit。
+**密码管理**：
+- `logs.yaml` 只存 env var **名字**（如 `PROD_APP_SSH_PWD`），文件可 commit 到 Git
+- 实际密码在 `~/.zshrc`：`export PROD_APP_SSH_PWD="..."`
+- 多台同密码服务器可以共用同一个 env var（在 logs.yaml 里多个 target 引用相同 password_env）
+
+**安全**：脚本只构造 `tail / grep / cat / zcat / ls` 这类 read-only 命令；path 走白名单字符，pattern 黑名单 shell metachar 防注入；密码只在内存中传给 paramiko，不写文件不进日志。
+
+**依赖**：paramiko + PyYAML（首次跑会检测，缺则提示 `pip install paramiko pyyaml --break-system-packages`）。
 
 ## Workspace Journal（会话记忆）
 
