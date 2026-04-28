@@ -178,6 +178,29 @@ copy_if_missing "$TEMPLATES_DIR/.claude/dbs.yaml.example" "./.claude/dbs.yaml.ex
 # jenkins.yaml.example：Jenkins 构建编排模板
 copy_if_missing "$TEMPLATES_DIR/.claude/jenkins.yaml.example" "./.claude/jenkins.yaml.example"
 
+# logs.yaml.example：日志查询模板
+copy_if_missing "$TEMPLATES_DIR/.claude/logs.yaml.example" "./.claude/logs.yaml.example"
+
+# log-query.sh：远程日志查询工具
+mkdir -p .claude/scripts
+if [ -f "$TEMPLATES_DIR/.claude/scripts/log-query.sh" ]; then
+  if [ ! -f ".claude/scripts/log-query.sh" ] || ! cmp -s "$TEMPLATES_DIR/.claude/scripts/log-query.sh" ".claude/scripts/log-query.sh"; then
+    if [ -f ".claude/scripts/log-query.sh" ] && [ $FORCE_REPLACE -eq 1 ]; then
+      cp ".claude/scripts/log-query.sh" ".claude/scripts/log-query.sh.bak.${TIMESTAMP}"
+      BACKED_UP+=(".claude/scripts/log-query.sh.bak.${TIMESTAMP}")
+    fi
+    cp "$TEMPLATES_DIR/.claude/scripts/log-query.sh" .claude/scripts/log-query.sh
+    chmod +x .claude/scripts/log-query.sh
+    if [ -f ".claude/scripts/log-query.sh.bak.${TIMESTAMP}" ]; then
+      UPDATED+=(".claude/scripts/log-query.sh")
+    else
+      ADDED+=(".claude/scripts/log-query.sh")
+    fi
+  else
+    SKIPPED+=(".claude/scripts/log-query.sh（内容相同）")
+  fi
+fi
+
 # DB 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
 mkdir -p .claude/hooks
 if [ -f "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ]; then

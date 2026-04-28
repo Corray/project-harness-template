@@ -201,6 +201,23 @@ bash .claude/scripts/db-config.sh --remove mysql-order
 
 如果项目里多个 Application 各连不同 DB，编辑 `.claude/dbs.yaml` 把启动类映射到对应 server。详见 `.claude/knowledge/testing/standards.md` 的"多启动类 / 多数据源场景"章节。
 
+## 远程日志查询（log-query.sh）
+
+排查线上问题时，Claude 可以通过 `bash .claude/scripts/log-query.sh` 拉取远程服务器日志（**只读**，不依赖 MCP）：
+
+```bash
+bash .claude/scripts/log-query.sh --add                        # 交互式新增 target（host + user + paths + 可选 bastion）
+bash .claude/scripts/log-query.sh --list                       # 列已配 target
+bash .claude/scripts/log-query.sh --target prod-app --tail 200 # 拉最后 200 行
+bash .claude/scripts/log-query.sh --target prod-app --grep "OutOfMemory" --context 10
+bash .claude/scripts/log-query.sh --target prod-app --grep "ERROR" --grep-v "expected"
+bash .claude/scripts/log-query.sh --files prod-app             # 只列日志文件，不取内容
+```
+
+配置在 `.claude/logs.yaml`（参考 `.claude/logs.yaml.example`），含 host / user / port / key / 可选 bastion（ProxyJump 跳板）/ paths / 可选 default_grep_v。
+
+**安全**：脚本只构造 `tail / grep / cat / zcat / ls` 这类 read-only 命令；path 和 pattern 经字符校验防注入；不存任何凭据，全靠你 `~/.ssh` 下的私钥。`.claude/logs.yaml` 不含 secret，可以 commit。
+
 ## Workspace Journal（会话记忆）
 
 `docs/workspace/{developer-name}/journal.md` 是跨 session 的工作记忆：

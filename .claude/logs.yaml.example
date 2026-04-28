@@ -1,0 +1,62 @@
+# 远程日志查询配置
+#
+# log-query.sh 读这个文件拿 target 列表 + 服务器接入信息 + 日志路径。
+# 拷成 .claude/logs.yaml 后改成你的真实 target，或跑：
+#   bash .claude/scripts/log-query.sh --add
+# 交互式新增。
+#
+# 字段：
+#   host:    必填，服务器 IP 或 hostname
+#   user:    必填，远端用户名
+#   port:    可选，SSH 端口（默认 22）
+#   key:     可选，私钥路径（不填用 ssh-agent 或默认 ~/.ssh/id_rsa）
+#   bastion: 可选，跳板（ProxyJump），格式 user@host[:port]，连接内网机器时用
+#   paths:   必填，日志文件路径列表（支持 glob，至少 1 个）
+#   default_grep_v: 可选，默认排除的噪音 pattern 列表（grep -v）
+#
+# 安全说明：
+#   - log-query.sh 只构造 read-only 命令（tail / grep / cat / zcat / ls）
+#   - 凭据完全靠你 ~/.ssh 下的私钥，本文件不存任何 secret
+#   - 文件可以 commit 到 Git（团队共享 target 名 + 服务器地址 + 日志路径）
+
+targets:
+  # ─── 示例 1：直接公网可达的服务器 ────────────────────────────────────
+  prod-app:
+    host: 10.0.5.10
+    user: deploy
+    port: 22
+    key: ~/.ssh/id_rsa
+    paths:
+      - /var/log/app/error.log
+      - /var/log/app/access.log
+    # 可选：每次查询时默认排除掉的噪音模式（grep -v）
+    default_grep_v:
+      - "DEBUG"
+      - "healthcheck"
+      - "/health"
+
+  # ─── 示例 2：内网机器，走 bastion 跳板 ───────────────────────────────
+  prod-mysql:
+    host: 192.168.10.20             # 内网 IP，本机直连不到
+    user: dba
+    bastion: corray@bastion.your-company.com:22
+    paths:
+      - /var/log/mysql/slow.log
+      - /var/log/mysql/error.log
+
+  # ─── 示例 3：最小配置（只填 host + user + paths）─────────────────────
+  staging-app:
+    host: staging.internal
+    user: deploy
+    paths:
+      - /var/log/app/*.log          # 支持 glob
+
+  # ─── 示例 4：Nginx 访问日志 ─────────────────────────────────────────
+  prod-nginx:
+    host: 10.0.5.30
+    user: ops
+    bastion: corray@bastion.your-company.com:22
+    paths:
+      - /var/log/nginx/access.log
+      - /var/log/nginx/access.log.1
+      # tail 跳过 .gz 归档；如要查归档，用 --paths 一次性传具体路径
