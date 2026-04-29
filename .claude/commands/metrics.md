@@ -14,7 +14,7 @@
 - Evaluator 的平均评分是涨还是跌？
 - 哪些任务类型的首次通过率最低？（= 该增强哪块 knowledge）
 
-`/metrics` 聚合 `journal.md` + `.harness-metrics/` 下的结构化日志，回答这些问题。
+`/metrics` 聚合 journal（按月切片：`journal-{YYYY-MM}.md`，兼容老版 `journal.md`）+ `.harness-metrics/` 下的结构化日志，回答这些问题。
 
 ## 用法
 
@@ -33,7 +33,10 @@
 
 ```
 docs/workspace/
-├── {developer}/journal.md                # /impl 完成时追加的结构化条目
+├── {developer}/
+│   ├── journal-2026-04.md                # 当前月切片（/impl、/record-session 写这里）
+│   ├── journal-2026-03.md                # 历史月切片
+│   └── journal.md                        # 老版（迁月切片前的历史，只读不再追加）
 └── .harness-metrics/                     # 机器可读的事件流（推荐新写入用这里）
     ├── impl/                             # /impl 事件
     │   └── 2026-04-*.jsonl
@@ -45,7 +48,12 @@ docs/workspace/
         └── 2026-04-*.jsonl
 ```
 
-**过渡策略**：老的 journal.md 仍可被解析（从 "### 做了什么"、"### 测试"、"### Commit" 等小节提取），新写入的命令应同时写 `.harness-metrics/` 的 jsonl 以获得更精确的数据。
+**Journal 文件发现规则**（按时间窗口聚合）：
+1. 时间窗口覆盖的所有月份 `M1..Mn` → 依次读 `journal-{Mi}.md`
+2. 仍有时间空缺 → 兜底读 `journal.md`（向前兼容老条目）
+3. 三类文件解析规则一致（按 `## YYYY-MM-DD HH:MM` 切条目）
+
+**过渡策略**：老的 `journal.md` 仍可被解析（从 "### 做了什么"、"### 测试"、"### Commit" 等小节提取），新写入的命令应同时写 `.harness-metrics/` 的 jsonl 以获得更精确的数据。
 
 ## 事件 schema（新命令应写入的格式）
 
@@ -99,8 +107,10 @@ docs/workspace/
 ### Step 2：收集数据
 
 1. 优先读 `.harness-metrics/*/*.jsonl`（结构化，快）
-2. 对于时间窗口内 jsonl 未覆盖的部分，fallback 到解析 `journal.md`：
-   - 按 `## YYYY-MM-DD HH:MM — {任务简述}` 切分条目
+2. 对于时间窗口内 jsonl 未覆盖的部分，fallback 到解析 journal：
+   - **按月切片读取**：时间窗口 `[start, end]` 覆盖的所有月份逐个读 `docs/workspace/{dev}/journal-{YYYY-MM}.md`
+   - **兜底兼容老版**：仍有空缺时读 `journal.md`（迁月切片前的历史条目）
+   - 三类文件解析格式一致：按 `## YYYY-MM-DD HH:MM — {任务简述}` 切分条目
    - 提取"文件变更"、"测试"、"自愈 N 轮"、"Commit"、"遗留"
    - 尽力而为，无法解析的字段留 null
 
@@ -132,9 +142,19 @@ docs/workspace/
 | 指标 | 说明 |
 |------|------|
 | Top 10 命中 knowledge | 按文件降序 |
-| 零命中 knowledge | 整个窗口内 0 次命中（建议删除或重写） |
+| **never-loaded knowledge** | 整个窗口内**没有任何命令选择加载它**（按 role 加载规则匹配后仍未触发）→ 真正的删除/重写候选 |
+| **loaded-but-no-trace knowledge** | 被加载过 ≥1 次，但加载它的那些 /impl 在 diff 里看不到对应规则的痕迹（也没出现在 red_lines_triggered / knowledge_updated）→ **可能是成功威慑**（团队真的不再踩这条坑），**不是删除候选**，单独标橙色 |
 | knowledge 更新频率 | 每周新增/修改的 knowledge 条目 |
+| **knowledge_suggestions 流向** | `appended` / `skipped_conflict` / `skipped_user` / `skipped_red_lines` 占比 + 自动追加 commit 的事后 revert 率 → 评估"自动追加"政策是否值得继续 |
 | 同一坑被重复指出 | adversarial 报告中相似扣分理由出现 ≥3 次 |
+
+**为什么把零命中拆成两类**：旧版"零命中 → 建议删除"是危险信号——一条 `[BLOCKER] User 和 UserAuth 必须分离存储` 如果团队真的都遵守了，会零命中，但**它仍然在起作用**（成功威慑）。删了下次新人立刻踩。
+
+判断 never-loaded vs loaded-but-no-trace 的方法：
+
+- 看 `knowledge-hits/*.jsonl`：被任意 `/impl`、`/review`、`/design` 加载过 → loaded
+- 在 loaded 的子集里看 `red_lines_triggered`、`knowledge_updated` 是否提及 → 无提及 → loaded-but-no-trace（不要删！）
+- 既没加载也没提及 → never-loaded（确实是删除/重写候选）
 
 #### 3.4 红线
 
@@ -192,10 +212,16 @@ docs/workspace/
 4. `backend/architecture.md` — 34 次
 5. ...
 
-### 🚮 建议删除或重写（零命中）
+### 🚮 删除/重写候选（never-loaded：30 天没被任何命令选择加载）
 
-- `frontend/taro-patterns.md` — 30 天内 0 次命中
+- `frontend/taro-patterns.md` — 30 天内 0 次加载
   → 可能：项目不用 Taro / 命令加载规则错了 / 内容过时
+
+### 🟧 标橙待人评（loaded-but-no-trace：被加载但 30 天内没在 diff/red_lines/knowledge_updated 留痕）
+
+- `backend/architecture.md` — 加载 18 次 / 留痕 0 次
+  → **不要直接删**。可能是"成功威慑"（团队已遵循无需违规），也可能是"加载了但实际没读懂"。
+  → 处置：人工抽样 3-5 次加载它的 commit，看代码是否符合该 knowledge——符合就保留，不符合就重写
 
 ### 🔁 重复痛点（adversarial 多次指出）
 
@@ -264,7 +290,7 @@ docs/workspace/
 /metrics [--days N | --sprint X | --developer Y]
   │
   ├── 收集 .harness-metrics/*.jsonl（优先）
-  ├── fallback 解析 journal.md
+  ├── fallback 解析 journal-{YYYY-MM}.md（按月切片）+ 老版 journal.md（兜底）
   │
   ├── 计算：吞吐量 / 质量 / Knowledge 有效性 / 红线 / 分布
   │

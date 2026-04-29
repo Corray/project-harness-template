@@ -29,8 +29,12 @@ role: backend / frontend / test
 同一"波"内最多 N 个独立任务并行跑，每个任务跑在独立的 `git worktree` 里（`.worktrees/{task.id}/`），完成后按 `depends_on` 拓扑序 `ff-only` 合并回 feature 分支。
 
 - N=1（默认）：退化为串行
-- 串行 + 并行**都默认 `--auto-confirm` 开启**：不再每任务问一次计划确认，只在 Step C 整批确认 / 自愈失败 / 设计冲突等高价值场景才停
-- 加 `--confirm-each` 反开关：恢复"每任务跑 /impl 前都停下确认"（串行排查特定任务时用）
+- **默认值按场景区分**：
+  - **串行（N=1）默认 `--confirm-each` 开启**：开发者通常就在屏幕前，每任务跑 /impl 前的 Step C "等待计划确认"是有价值的观察窗口，不是无谓摩擦
+  - **并行（N≥2）默认 `--auto-confirm` 开启**：批量跑（多用于夜跑 / 大 sprint），开发者不在屏幕前，无法每任务交互确认
+- 反开关：
+  - 串行加 `--auto-confirm`：跳过每任务确认（信任 Step 2 整批已确认过的计划，类似把串行当批处理跑）
+  - 并行加 `--confirm-each`：极少用，开发者愿意在每个 worker 的 Step C 处停下逐个确认
 - 失败隔离：单任务失败不影响同波独立任务；失败数 ≥ `--max-parallel-fail`（默认 `ceil(N/2)`）才停 dispatch 新任务
 - 硬约束：`.worktrees/` 必须在 `.gitignore`；并发 N 超过 CPU*2 要求用户确认；合并顺序 = 拓扑序（不是完成顺序）
 
@@ -184,7 +188,7 @@ git reflog -n 10         # 最近有无来源的 reset / checkout / stash？
 每个 Worker 在子 shell 里：
 ```bash
 cd .worktrees/{task.id}
-# 执行 3.1 /impl 全流程（--auto-confirm 默认开；--confirm-each 反开关）
+# 执行 3.1 /impl 全流程（并行模式：--auto-confirm 默认开，跳每任务确认）
 # 执行 verify 断言循环（≤3 轮自愈）
 # git commit 到 feature/{sprint}-{role}/{task.id} 子分支
 # 把结果写到 .worktrees/{task.id}/.worker-status.json

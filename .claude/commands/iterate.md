@@ -235,18 +235,28 @@ docs/tasks/{YYYY-MM}-{需求关键词}/
 - 人工勾选 `checklist.md` 时，`/run-tasks` 会同步 `tasks.yaml` 的 `status` 字段
 - `tasks.yaml` 被修改后必须重跑 `/iterate --refresh-checklist` 同步 `checklist.md`
 
-### Step 8：输出完成提示
+### Step 8：输出完成提示 + 询问是否立即接 /design
 
 ```
 已保存：
 - 迭代共识：docs/tasks/{目录}/iterate-consensus.md
 - 任务清单：docs/tasks/{目录}/checklist.md
+- 任务断言：docs/tasks/{目录}/tasks.yaml
 
 任务统计：后端 {N} 项 / 前端 {M} 项 / 测试 {K} 项 / 产品确认 {L} 项
 Breaking Change：{有/无}
-
-建议下一步：
-1. 同步给 PM 确认产品确认事项
-2. /design backend — 生成后端详细设计
-3. /design frontend — 生成前端详细设计
 ```
+
+**自动衔接 /design**（默认 Y，开发者趁热打铁）：
+
+```
+是否立即生成详细设计文档？
+  Y / [回车]    → 继续跑 /design（如同时有 backend 和 frontend 任务，依次跑）
+  backend       → 只跑 /design backend
+  frontend      → 只跑 /design frontend
+  N             → 不跑，开发者后续手动 /design
+```
+
+**为什么默认 Y**：开发者刚走完影响分析，迭代上下文还热。让人手动切去敲 /design 容易漏，或者改天才记起来。如果发现共识本身有问题，N 后回去改 iterate-consensus.md，再手动跑 /design 也来得及。
+
+**有产品确认事项时**（Step 6 输出 `产品确认 > 0`）：默认改成 N，并提示"建议先同步 PM 确认 {产品确认事项摘要}，再回来跑 /design"——产品确认未结的设计文档容易白写。
