@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 自检：被 sh / dash 调用时强制重启为 bash（防止解析失败）
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec /usr/bin/env bash "$0" "$@"
+fi
 #
 # Project Harness Template 安装脚本
 # 用法：
@@ -121,18 +125,25 @@ cp "$TEMPLATES_DIR/CLAUDE.md" ./CLAUDE.md
 cp "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" ./HARNESS_PHILOSOPHY.md
 cp -r "$TEMPLATES_DIR/.claude/commands" ./.claude/
 cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
-# 复制 .claude/scripts/ 全目录（db-config.sh / log-query.* / evaluator-marker.sh 等）
-# 整目录拷贝避免新增脚本时漏在硬编码列表外（曾因 evaluator-context-guard 漏拷踩坑）
+# 复制 .claude/scripts/ 和 .claude/hooks/ 全目录（整目录拷贝避免硬编码列表漏拷）
+# rsync --exclude 比 cp -r 更稳，能精准排除 __pycache__/；rsync 不在时退到 cp -r 后清理
 mkdir -p .claude/scripts .claude/hooks
-if [ -d "$TEMPLATES_DIR/.claude/scripts" ]; then
-  cp -r "$TEMPLATES_DIR/.claude/scripts/." ./.claude/scripts/
-  find ./.claude/scripts -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \;
-fi
-# 复制 .claude/hooks/ 全目录（db-readonly-guard / evaluator-context-guard 等 PreToolUse hook）
-if [ -d "$TEMPLATES_DIR/.claude/hooks" ]; then
-  cp -r "$TEMPLATES_DIR/.claude/hooks/." ./.claude/hooks/
-  find ./.claude/hooks -type f -name "*.py" -exec chmod +x {} \;
-fi
+copy_template_dir() {
+  local rel_dir="$1"
+  local src="$TEMPLATES_DIR/$rel_dir"
+  local dst="./$rel_dir"
+  [ -d "$src" ] || return 0
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --exclude='__pycache__' --exclude='*.pyc' "$src/" "$dst/"
+  else
+    cp -r "$src/." "$dst/"
+    find "$dst" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+    find "$dst" -type f -name "*.pyc" -delete 2>/dev/null
+  fi
+  find "$dst" -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \;
+}
+copy_template_dir ".claude/scripts"
+copy_template_dir ".claude/hooks"
 # 复制 dbs.yaml.example（启动类→DB 映射模板）
 cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
 # 复制 jenkins.yaml.example（Jenkins 构建编排模板）

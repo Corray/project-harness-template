@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 自检：被 sh / dash 调用时强制重启为 bash（process substitution 等语法只在 bash 里合法）
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec /usr/bin/env bash "$0" "$@"
+fi
 #
 # Project Harness Template 升级脚本（2026-04 新增 /adversarial-review、/metrics、tasks.yaml）
 #
@@ -165,14 +169,23 @@ copy_if_missing "$TEMPLATES_DIR/.claude/logs.yaml.example" "./.claude/logs.yaml.
 # 单独硬编码列表多次踩坑（曾因 evaluator-context-guard 漏在 hooks 列表外
 # 导致下游所有项目 Read 工具报错 hook 找不到）。改成循环遍历模板目录，
 # 不论新加什么 script / hook 都会被同步，settings.json 的 hook 注册也才有意义。
+#
+# 实现注意：
+#   - 用临时文件代替 process substitution `< <(...)`，避免某些 bash 解析不一致
+#   - 不传 glob 后缀过滤（曾因 '*.sh' 在 word splitting 后被 cwd glob 展开踩坑），
+#     .claude/hooks/ 和 .claude/scripts/ 目录里就应该全是脚本
 sync_template_dir() {
   local rel_dir="$1"          # 例如 .claude/scripts
-  local file_glob="$2"         # 例如 "*.sh *.py"
   local src_dir="$TEMPLATES_DIR/$rel_dir"
   [ -d "$src_dir" ] || return 0
   mkdir -p "./$rel_dir"
+  local list_tmp
+  list_tmp=$(mktemp -t harness-sync.XXXXXX) || return 1
+  # 排除 __pycache__/ 等 Python 编译产物（本地 hook 跑过测试会留下 .pyc）
+  find "$src_dir" -type f -not -path '*/__pycache__/*' >"$list_tmp" 2>/dev/null
   local entry rel_path src dst
   while IFS= read -r entry; do
+    [ -n "$entry" ] || continue
     rel_path="${entry#$src_dir/}"
     src="$entry"
     dst="./$rel_dir/$rel_path"
@@ -183,7 +196,7 @@ sync_template_dir() {
         BACKED_UP+=("${dst}.bak.${TIMESTAMP}")
       fi
       cp "$src" "$dst"
-      [[ "$dst" == *.sh || "$dst" == *.py ]] && chmod +x "$dst"
+      case "$dst" in *.sh|*.py) chmod +x "$dst" ;; esac
       if [ -f "${dst}.bak.${TIMESTAMP}" ]; then
         UPDATED+=("$dst")
       else
@@ -192,14 +205,15 @@ sync_template_dir() {
     else
       SKIPPED+=("$dst（内容相同）")
     fi
-  done < <(find "$src_dir" -type f $file_glob 2>/dev/null)
+  done <"$list_tmp"
+  rm -f "$list_tmp"
 }
 
 # 同步 scripts/ 全目录（db-config.sh / log-query.* / evaluator-marker.sh ...）
-sync_template_dir ".claude/scripts" '( -name *.sh -o -name *.py )'
+sync_template_dir ".claude/scripts"
 
 # 同步 hooks/ 全目录（db-readonly-guard.py / evaluator-context-guard.py ...）
-sync_template_dir ".claude/hooks" '-name *.py'
+sync_template_dir ".claude/hooks"
 
 # settings.json：merge hook 注册
 if [ ! -f ".claude/settings.json" ]; then
