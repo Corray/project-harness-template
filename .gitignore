@@ -19,3 +19,6 @@ dashboard/__pycache__/
 # Backup files from upgrade.sh
 *.bak
 *.new
+
+# Evaluator guard marker（adversarial-review 守卫期，跟 session 周期）
+.claude/.hooks/evaluator-active.json

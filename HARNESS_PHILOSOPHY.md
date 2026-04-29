@@ -103,10 +103,16 @@ tasks.yaml 是给机器执行的（`verify` 断言跑一次看 exit code）。
 因为开发者不应该被命令表拷问。大任务/小任务的边界由 AI 自己判断（自动转入 `/iterate` 或直接执行），人只管描述要做什么。
 这让新人上手成本从"学 10 个命令"变成"学一个 `/impl`"。
 
-### 为什么 `/adversarial-review` 必须新开 session？
+### 为什么 `/adversarial-review` 要 context 隔离？
 
 因为 context 一旦被 Generator 的思路污染（journal、中间讨论、实现选择），Evaluator 会自动**继承这些思路**，哪怕你嘴上要它怀疑。
-解决办法不是"更聪明的 prompt"，是**物理隔离**——开新 session，只加载 diff + design + red-lines + tasks.yaml 的 `verify`。
+解决办法不是"更聪明的 prompt"，是**物理隔离**：
+
+- **默认路径（Task subagent）**：父 session 用 Task tool spawn 一个独立 subagent 当 Evaluator。subagent 拥有自己的 context window，不继承父 session 的对话历史、journal、实现 knowledge。配合 `evaluator-context-guard.py` PreToolUse hook 在工具层硬拦 Read 对 journal/backend/frontend knowledge 的访问，等价于物理隔离。
+- **Fallback（`--new-session`）**：开发者在新的 Claude Code 进程里跑命令，连 PID 都是新的。当 Task tool 不可用、做严格安全 review、或想绝对排除任何工具层 bug 时用。
+- **Oracle 模式**：spawn 三个 subagent（A/B/Aggregator），父 session 不参与仲裁——父 session 是 Generator，让它仲裁会引入新的 self-rating bias。
+
+这条原则没变，只是从"开发者人肉开新 session"换成"harness 在工具层强制隔离"——Anthropic 2026 *Effective harnesses for long-running agents* 也明确把"工具调用边界 + hook 拦截"列为 context 隔离的一等手段。
 
 ### 为什么 knowledge 要分层按需加载？
 
