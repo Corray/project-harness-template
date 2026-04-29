@@ -85,7 +85,7 @@
 1. 读取 `docs/project.yaml` 判断项目栈类型
 2. 按栈类型加载对应 Knowledge（只加载相关的，不全量）
 3. 读取相关详细设计 + 基线文档
-4. 读取 workspace journal 最近 5 条
+4. 读取 workspace journal 最近 5 条（按月切片倒序读：先 `journal-{当月 YYYY-MM}.md` 末尾，不足再补 `journal-{上月}.md` 末尾，仍兼容旧 `journal.md`）
 5. 代码结构分析：
    - 有 code-review-graph MCP → `query_graph_tool` 查依赖链和测试覆盖
    - 无 → 扫描相关模块代码
@@ -165,12 +165,13 @@
 
 回归失败 → 自愈循环（最多 3 轮）。
 
-### Step 5：Git Commit（自动，不暂停）
+### Step 5：Git Commit（自动，不暂停；业务代码独立于 knowledge 沉淀）
 
-验证全部通过后立即提交：
+验证全部通过后**先提交业务变更**（不含 knowledge），然后在 Step 6.6.b 单独提交 knowledge 沉淀。理由：让 `git log -- .claude/knowledge/` 一眼看清知识演化史，review 知识不必在业务 diff 里大海捞针；出问题可以 `git revert {knowledge-commit-hash}` 干净。
 
 ```bash
-git add {所有变更文件 + 测试文件}
+# 业务 + 测试（不含 .claude/knowledge/）
+git add {业务文件 + 测试文件}
 git commit -m "{project}: {任务描述}
 
 变更：
@@ -182,11 +183,20 @@ git commit -m "{project}: {任务描述}
 - 自愈 {K} 轮"
 ```
 
+knowledge 的变更（如 6.2 自动追加）**不进这次 commit**，留到 Step 6.6.b。
+
 ### Step 6：Record Session（自动，commit 后立即触发）
 
 commit 完成后自动执行完整的会话记录，不需要手动触发 `/record-session`。
 
-**6.1 Journal 记录：**
+**6.1 Journal 记录（按月切片）：**
+
+写入路径：`docs/workspace/{developer}/journal-{YYYY-MM}.md`
+
+- 按月切片避免单文件无限增长（一年下来轻松几十 MB，git diff/blame 都拖累）
+- 老的 `journal.md`（如存在）仍兼容读，但**新条目只写当月切片**
+- Step 2（侦察）读取最近 5 条时按时间倒序读："当月切片末尾 → 上月切片末尾"，覆盖跨月场景
+- 切换月份时不需要任何手工动作，自动按 `date +%Y-%m` 生成文件名
 
 ```markdown
 ---
@@ -211,7 +221,7 @@ commit 完成后自动执行完整的会话记录，不需要手动触发 `/reco
 
 **6.2 Knowledge 自动更新（默认开）：**
 
-发现 knowledge 未覆盖的模式 → **直接追加**到对应文件，不停下问。开发者通过 `git log` / `git diff` 事后审查，必要时 revert。
+发现 knowledge 未覆盖的模式 → **追加到目标文件末尾的"自动追加区"**，不停下问。开发者通过 `git log -- .claude/knowledge/` 事后审查（每次知识变更都是独立 commit，见 6.6.b），必要时 `git revert`。
 
 **追加判定（任一命中才动手）**：
 
@@ -219,22 +229,30 @@ commit 完成后自动执行完整的会话记录，不需要手动触发 `/reco
 - 业务约束：本次发现的、knowledge 没写的项目特定规则
 - 编码模式：本次摸索出的、值得复用的最佳实践
 
-**追加内容必须**：
+**追加规则**（机械可执行，避免 AI 自由发挥）：
 
-- 一句话说"做什么 + 为什么"，不超过 3 行
-- 标注追加来源：`<!-- by /impl on YYYY-MM-DD: {feature 简述} -->`
-- 只追加，不修改既有内容（避免覆盖团队他人写的）
-- 在 6.1 journal 的 `### Knowledge 建议` 段列出本次追加项
+1. **只追加到自动追加区**，永不修改既有人写的内容。每个 knowledge 文件末尾约定一个 section：
+   ```markdown
+   ## 自动追加区（/impl 沉淀，待团队 review）
+
+   <!-- 以下条目由 /impl 自动追加，每条独立 commit，团队周期性 review 后挪到正式章节 -->
+   ```
+   如目标文件还没有这个 section，追加前先创建。
+2. 每条不超过 3 行：一句"做什么 + 为什么"。
+3. 必须带来源标记：`<!-- by /impl on YYYY-MM-DD ({slug}): commit {short-hash} -->`
+4. 在 6.1 journal 的 `### Knowledge 建议` 段列出本次追加项（路径 + 一句话）。
+5. **冲突保守化**：追加内容若与既有人写章节有相似关键词（grep 命中既有 section 的标题或前 3 行），停下问开发者，不直接追加。这是机械检测，不让 AI 主观判断"是否冲突"——AI 偏向于宣称"不冲突"。
+6. `red-lines.md` 永远不自动追加（红线变更必须走团队评审）。
 
 **显式关闭**：用 `/impl --no-knowledge-update "..."` 关掉自动追加，恢复"提示开发者确认后再写"的旧行为。
 
-**不允许的追加**：
+**理由（待数据校准）**：默认追加 + 事后审查的假设是"询问式更新会因为开发者懒得点 Y 而错过大部分沉淀机会"。这是假设不是结论——本次起在 metrics 加 `knowledge_suggestions` 字段同时记录"建议过 / 实际追加 / 开发者 revert"三个事实，2-4 周后用 `/metrics --knowledge-flow` 验证：
 
-- 私人偏好 / 风格偏好（应走团队 PR 改 knowledge）
-- 与既有 knowledge 冲突的条款（必须停下问，让开发者决策）
-- 涉及 `red-lines.md` 的修改（红线变更必须走团队评审，/impl 不能自行追）
+- 若实际 revert 率 > 30%：自动追加在制造噪音，应回到 Y/N
+- 若 revert 率 < 5% 且追加增长稳定：自动追加是对的
+- 中间区间：保留默认开 + 审视判定规则的精度
 
-理由：自迭代 knowledge 是 harness 的核心价值。每次问"是否更新"导致 90% 的更新机会被开发者懒得点 Y 错过，长期 knowledge 停滞。改成默认追加 + 事后 git diff 审查，团队记忆会真的累积。
+不让"我们觉得 90% 会被错过"变成永久政策，让数据说话。
 
 **6.3 Checklist 更新（如有）：**
 
@@ -294,11 +312,13 @@ tasks:
 **后续使用**：
 
 ```
-🧪 本次若需对抗评估，执行：
-  【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
+🧪 本次若需对抗评估，执行（在当前 session 即可，命令会 Task spawn 独立 Evaluator subagent）：
+  /adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
                   或
-  【新开 session】/adversarial-review --branch {当前分支}
+  /adversarial-review --branch {当前分支}
                   （后者会自动回查对应 ad-hoc/tasks.yaml）
+
+  想再加一层物理隔离（手动新开 Claude Code 进程）：加 --new-session
 ```
 
 **6.5 回写 metrics 事件（必做）：**
@@ -316,24 +336,78 @@ tasks:
 - `human_intervention`：本次是否暂停过请人
 - `intervention_reason`：若暂停过，取值 `3_rounds_failed` / `env_issue` / `manual_op` / `spec_issue` / `large_task`；否则 `null`
 - `knowledge_loaded`：Step 2 实际读到的 knowledge 文件相对路径列表
-- `knowledge_updated`：Step 6.2 本次追加/修改的 knowledge 文件
+- `knowledge_suggestions`：Step 6.2 触发的所有 knowledge 沉淀建议，每条 `{file, snippet, action}`，`action` 取值：
+  - `appended`：自动追加到目标文件的"自动追加区"（默认行为）
+  - `skipped_conflict`：检测到与既有 section 关键词冲突，跳过追加，提示开发者
+  - `skipped_user`：跑了 `--no-knowledge-update`
+  - `skipped_red_lines`：涉及 `red-lines.md`，按硬约束跳过
+- `knowledge_commit`：Step 6.6.b 单独 commit 的 hash（仅 action=appended 时有值，便于事后审查/回滚和度量"自动追加被 revert 的比例"）
 - `red_lines_triggered`：Step 4.1 红线扫描发现并自修的条目（自修完成的也要记，体现红线"拦住了"什么）
 - `tasks_yaml_path`：`small` 任务为 Step 6.4 刚写的 ad-hoc tasks.yaml 路径；`large` 任务为 `/iterate` 产出的 sprint tasks.yaml 路径。**必填**，`/adversarial-review` 和 `/dashboard` 依赖该字段定位断言源。
 
 如果本次因失败或人工介入提前终止，也要写一条 impl 事件（字段据实填写、`human_intervention: true`），不要因为"没完成"就不记——`/metrics` 的"人工介入率"靠这部分数据。
 
-**6.6 完成输出：**
+**6.6.a 完成输出：**
 
 ```
 ✅ {任务描述}
 
-{N} 个文件 · {M} 个测试 · 自愈 {K} 轮 · commit {hash}
-Journal 已更新 · Knowledge {已更新/无更新} · Checklist {已勾选/无} · Metrics 已记录
-Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
+{N} 个文件 · {M} 个测试 · 自愈 {K} 轮
+Commits（按顺序）：
+  1) {业务-hash}    业务 + 测试
+  2) {knowledge-hash}（如有）  knowledge: append from /impl ({slug})
+  3) {tracking-hash} tracking: /impl ad-hoc artifacts ({slug})
 
-如需对抗评估：【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
-如需回滚：git revert {hash}
+Journal（月切片）：docs/workspace/{dev}/journal-{YYYY-MM}.md
+Knowledge：{已追加 N 条 / 无}
+Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
+Metrics：docs/workspace/.harness-metrics/impl/{YYYY-MM}.jsonl
+
+如需对抗评估：/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}（Task spawn 独立 Evaluator）
+如需回滚业务变更：git revert {业务-hash}（不会动 knowledge / tracking）
+如需回滚 knowledge 沉淀：git revert {knowledge-hash}
 ```
+
+**6.6.b Knowledge 单独 commit（仅当本次有 `appended` 沉淀时）：**
+
+```bash
+# 上一步 6.6.a 输出后，把 .claude/knowledge/ 下的变更单独提交
+git add .claude/knowledge/
+git commit -m "knowledge: append from /impl ({slug})
+
+来源：commit {业务-hash}（{任务描述}）
+追加：
+- {file1}：{一句概要}
+- {file2}：{一句概要}
+
+事后审查：git log -- .claude/knowledge/
+回滚：git revert HEAD"
+```
+
+把 6.6.b 的 commit hash 回填到 6.5 的 `knowledge_commit` 字段。如果本次 `knowledge_suggestions` 全是 `skipped_*` 没有 `appended`，跳过 6.6.b，`knowledge_commit` 留 null。
+
+**6.6.c Tracking files commit（必做）：**
+
+把 Step 6.4 写的 `docs/tasks/ad-hoc/{slug}/tasks.yaml` 和 Step 6.5 追加的 `docs/workspace/.harness-metrics/**/*.jsonl` 一起提交（这些文件没进 Step 5 的业务 commit，要单独跟进 git，否则 `git status` 会永远残留未跟踪文件）：
+
+```bash
+git add docs/tasks/ad-hoc/{slug}/ docs/workspace/.harness-metrics/
+git commit -m "tracking: /impl ad-hoc artifacts ({slug})
+
+来源：commit {业务-hash}（{任务描述}）
+追加：
+- docs/tasks/ad-hoc/{slug}/tasks.yaml
+- docs/workspace/.harness-metrics/impl/{YYYY-MM}.jsonl
+- docs/workspace/.harness-metrics/knowledge-hits/{YYYY-MM}.jsonl
+- docs/workspace/{developer}/journal-{YYYY-MM}.md   # 6.1 写的月切片
+"
+```
+
+**为什么不并到业务 commit**：tasks.yaml 在业务 commit 后才生成（断言指向业务-hash）；metrics jsonl 是 commit 后才知道结果。强行塞进业务 commit 会让"业务"和"跟踪"两个语义混在一起，git log 难看。
+
+**为什么不放进 .gitignore**：这些文件是 `/adversarial-review` 和 `/metrics` 的事实源，必须进 repo（否则其他开发者跑命令拿不到）。
+
+如果某次 /impl 由于失败提前终止，6.4 / 6.5 仍写一条记录（"human_intervention: true"），6.6.c 也要 commit—— `/metrics` 的失败统计依赖这部分数据。
 
 ### Step 7：Jenkins 构建（可选，需询问）
 
@@ -341,9 +415,19 @@ Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
 
 - `.mcp.json` 中存在 `jenkins` server（没配就跳过本步，不打扰）
 - Step 5 已完成 commit（如未 commit 则跳过）
+- `docs/project.yaml` 的 `jenkins.prompt` 字段不为 `skip`（见下方"项目级关闭"）
 
 **配置文件**：`.claude/jenkins.yaml`（参考 `.claude/jenkins.yaml.example`）。
 不存在该文件时退化为询问开发者输入单个 job 名。
+
+**项目级关闭** — 在 `docs/project.yaml` 加：
+
+```yaml
+jenkins:
+  prompt: skip          # 取值：ask（默认，每次问 y/N）/ skip（永远跳过）/ auto（永远 Y，仅 sandbox/staging 用）
+```
+
+设置成 `skip` 后，/impl Step 7 整段不再询问，metrics 的 `jenkins` 字段记 `{"mode":"skipped_by_project_yaml"}`。每次都问一遍 Y/N 久了会麻木，团队可一次性收敛。
 
 #### 7.1 询问开发者（**默认 N，避免误触发生产部署**）
 
@@ -352,6 +436,7 @@ Tasks.yaml（ad-hoc）：docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml
 ```
 
 选 N → 在 Step 6.5 写入的 impl 事件 `jenkins` 字段记 `null`，跳到"暂停条件"段。
+如 `project.yaml.jenkins.prompt == auto`，跳过本步直接走 7.2。
 
 #### 7.2 加载 .claude/jenkins.yaml 判定模式
 

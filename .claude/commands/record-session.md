@@ -19,9 +19,12 @@
 - 创建/修改了哪些文件
 - 遇到了哪些问题、做了哪些决策
 
-### Step 2：更新 Journal
+### Step 2：更新 Journal（月切片）
 
-在 `docs/workspace/{developer}/journal.md` 末尾追加完整的会话记录：
+写入路径：`docs/workspace/{developer}/journal-{YYYY-MM}.md`（按当前日期取月份）。
+旧的 `journal.md`（如存在）保留向后兼容只读，不再追加。
+
+在当月切片末尾追加完整的会话记录：
 
 ```markdown
 ---
