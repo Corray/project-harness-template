@@ -152,26 +152,6 @@ done
 echo ""
 echo -e "${GREEN}[2.5/4] 装 DB 配置工具 + Jenkins MCP 条目${NC}"
 
-# db-config.sh：装一份到项目，永远只在用户主动跑时执行
-mkdir -p .claude/scripts
-if [ -f "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ]; then
-  if [ ! -f ".claude/scripts/db-config.sh" ] || ! cmp -s "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ".claude/scripts/db-config.sh"; then
-    if [ -f ".claude/scripts/db-config.sh" ] && [ $FORCE_REPLACE -eq 1 ]; then
-      cp ".claude/scripts/db-config.sh" ".claude/scripts/db-config.sh.bak.${TIMESTAMP}"
-      BACKED_UP+=(".claude/scripts/db-config.sh.bak.${TIMESTAMP}")
-    fi
-    cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" .claude/scripts/db-config.sh
-    chmod +x .claude/scripts/db-config.sh
-    if [ -f ".claude/scripts/db-config.sh.bak.${TIMESTAMP}" ]; then
-      UPDATED+=(".claude/scripts/db-config.sh")
-    else
-      ADDED+=(".claude/scripts/db-config.sh")
-    fi
-  else
-    SKIPPED+=(".claude/scripts/db-config.sh（内容相同）")
-  fi
-fi
-
 # dbs.yaml.example：模板
 copy_if_missing "$TEMPLATES_DIR/.claude/dbs.yaml.example" "./.claude/dbs.yaml.example"
 
@@ -181,48 +161,45 @@ copy_if_missing "$TEMPLATES_DIR/.claude/jenkins.yaml.example" "./.claude/jenkins
 # logs.yaml.example：日志查询模板
 copy_if_missing "$TEMPLATES_DIR/.claude/logs.yaml.example" "./.claude/logs.yaml.example"
 
-# log-query.py + log-query.sh：远程日志查询工具（paramiko 实现）
-mkdir -p .claude/scripts
-for script in log-query.py log-query.sh; do
-  src="$TEMPLATES_DIR/.claude/scripts/$script"
-  dst=".claude/scripts/$script"
-  [ -f "$src" ] || continue
-  if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
-    if [ -f "$dst" ] && [ $FORCE_REPLACE -eq 1 ]; then
-      cp "$dst" "${dst}.bak.${TIMESTAMP}"
-      BACKED_UP+=("${dst}.bak.${TIMESTAMP}")
-    fi
-    cp "$src" "$dst"
-    chmod +x "$dst"
-    if [ -f "${dst}.bak.${TIMESTAMP}" ]; then
-      UPDATED+=("$dst")
+# ----- 循环同步 .claude/scripts/ 和 .claude/hooks/ 全目录 -----
+# 单独硬编码列表多次踩坑（曾因 evaluator-context-guard 漏在 hooks 列表外
+# 导致下游所有项目 Read 工具报错 hook 找不到）。改成循环遍历模板目录，
+# 不论新加什么 script / hook 都会被同步，settings.json 的 hook 注册也才有意义。
+sync_template_dir() {
+  local rel_dir="$1"          # 例如 .claude/scripts
+  local file_glob="$2"         # 例如 "*.sh *.py"
+  local src_dir="$TEMPLATES_DIR/$rel_dir"
+  [ -d "$src_dir" ] || return 0
+  mkdir -p "./$rel_dir"
+  local entry rel_path src dst
+  while IFS= read -r entry; do
+    rel_path="${entry#$src_dir/}"
+    src="$entry"
+    dst="./$rel_dir/$rel_path"
+    mkdir -p "$(dirname "$dst")"
+    if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
+      if [ -f "$dst" ] && [ $FORCE_REPLACE -eq 1 ]; then
+        cp "$dst" "${dst}.bak.${TIMESTAMP}"
+        BACKED_UP+=("${dst}.bak.${TIMESTAMP}")
+      fi
+      cp "$src" "$dst"
+      [[ "$dst" == *.sh || "$dst" == *.py ]] && chmod +x "$dst"
+      if [ -f "${dst}.bak.${TIMESTAMP}" ]; then
+        UPDATED+=("$dst")
+      else
+        ADDED+=("$dst")
+      fi
     else
-      ADDED+=("$dst")
+      SKIPPED+=("$dst（内容相同）")
     fi
-  else
-    SKIPPED+=("$dst（内容相同）")
-  fi
-done
+  done < <(find "$src_dir" -type f $file_glob 2>/dev/null)
+}
 
-# DB 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
-mkdir -p .claude/hooks
-if [ -f "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ]; then
-  if [ ! -f ".claude/hooks/db-readonly-guard.py" ] || ! cmp -s "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ".claude/hooks/db-readonly-guard.py"; then
-    if [ -f ".claude/hooks/db-readonly-guard.py" ] && [ $FORCE_REPLACE -eq 1 ]; then
-      cp ".claude/hooks/db-readonly-guard.py" ".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}"
-      BACKED_UP+=(".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}")
-    fi
-    cp "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" .claude/hooks/db-readonly-guard.py
-    chmod +x .claude/hooks/db-readonly-guard.py
-    if [ -f ".claude/hooks/db-readonly-guard.py.bak.${TIMESTAMP}" ]; then
-      UPDATED+=(".claude/hooks/db-readonly-guard.py")
-    else
-      ADDED+=(".claude/hooks/db-readonly-guard.py")
-    fi
-  else
-    SKIPPED+=(".claude/hooks/db-readonly-guard.py（内容相同）")
-  fi
-fi
+# 同步 scripts/ 全目录（db-config.sh / log-query.* / evaluator-marker.sh ...）
+sync_template_dir ".claude/scripts" '( -name *.sh -o -name *.py )'
+
+# 同步 hooks/ 全目录（db-readonly-guard.py / evaluator-context-guard.py ...）
+sync_template_dir ".claude/hooks" '-name *.py'
 
 # settings.json：merge hook 注册
 if [ ! -f ".claude/settings.json" ]; then

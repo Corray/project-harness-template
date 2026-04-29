@@ -121,23 +121,25 @@ cp "$TEMPLATES_DIR/CLAUDE.md" ./CLAUDE.md
 cp "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" ./HARNESS_PHILOSOPHY.md
 cp -r "$TEMPLATES_DIR/.claude/commands" ./.claude/
 cp -r "$TEMPLATES_DIR/.claude/knowledge" ./.claude/
-# 复制 db-config.sh（per-project 数据库 MCP 配置工具，按需手跑）
+# 复制 .claude/scripts/ 全目录（db-config.sh / log-query.* / evaluator-marker.sh 等）
+# 整目录拷贝避免新增脚本时漏在硬编码列表外（曾因 evaluator-context-guard 漏拷踩坑）
 mkdir -p .claude/scripts .claude/hooks
-cp "$TEMPLATES_DIR/.claude/scripts/db-config.sh" ./.claude/scripts/db-config.sh
-chmod +x ./.claude/scripts/db-config.sh
-# 复制 log-query.py + log-query.sh（远程日志查询工具，paramiko + 密码 env var）
-cp "$TEMPLATES_DIR/.claude/scripts/log-query.py" ./.claude/scripts/log-query.py
-cp "$TEMPLATES_DIR/.claude/scripts/log-query.sh" ./.claude/scripts/log-query.sh
-chmod +x ./.claude/scripts/log-query.py ./.claude/scripts/log-query.sh
+if [ -d "$TEMPLATES_DIR/.claude/scripts" ]; then
+  cp -r "$TEMPLATES_DIR/.claude/scripts/." ./.claude/scripts/
+  find ./.claude/scripts -type f \( -name "*.sh" -o -name "*.py" \) -exec chmod +x {} \;
+fi
+# 复制 .claude/hooks/ 全目录（db-readonly-guard / evaluator-context-guard 等 PreToolUse hook）
+if [ -d "$TEMPLATES_DIR/.claude/hooks" ]; then
+  cp -r "$TEMPLATES_DIR/.claude/hooks/." ./.claude/hooks/
+  find ./.claude/hooks -type f -name "*.py" -exec chmod +x {} \;
+fi
 # 复制 dbs.yaml.example（启动类→DB 映射模板）
 cp "$TEMPLATES_DIR/.claude/dbs.yaml.example" ./.claude/dbs.yaml.example 2>/dev/null || true
 # 复制 jenkins.yaml.example（Jenkins 构建编排模板）
 cp "$TEMPLATES_DIR/.claude/jenkins.yaml.example" ./.claude/jenkins.yaml.example 2>/dev/null || true
 # 复制 logs.yaml.example（远程日志查询配置模板）
 cp "$TEMPLATES_DIR/.claude/logs.yaml.example" ./.claude/logs.yaml.example 2>/dev/null || true
-# 复制 db 只读 hook（PreToolUse 拦截写操作）+ settings.json 注册
-cp "$TEMPLATES_DIR/.claude/hooks/db-readonly-guard.py" ./.claude/hooks/db-readonly-guard.py
-chmod +x ./.claude/hooks/db-readonly-guard.py
+# settings.json 合并 hook 注册（见下文 python merge）
 if [ ! -f "./.claude/settings.json" ]; then
   cp "$TEMPLATES_DIR/.claude/settings.json" ./.claude/settings.json
 else
@@ -177,12 +179,11 @@ echo "  - CLAUDE.md 已就位"
 echo "  - HARNESS_PHILOSOPHY.md 已就位（设计哲学，建议通读）"
 echo "  - ${COMMAND_COUNT} 个命令文件已就位（.claude/commands/，含 /adversarial-review、/metrics、/dashboard、/command-feedback）"
 echo "  - knowledge 分层已就位（.claude/knowledge/{backend,frontend,testing,red-lines.md}）"
-echo "  - .claude/scripts/db-config.sh 已就位（DB MCP 配置工具，按需跑）"
-echo "  - .claude/scripts/log-query.sh 已就位（远程日志查询工具，按需跑或由 Claude 调用）"
+echo "  - .claude/scripts/ 已就位（db-config / log-query / evaluator-marker 等，按需手跑）"
 echo "  - .claude/dbs.yaml.example 已就位（启动类→DB 映射模板）"
 echo "  - .claude/jenkins.yaml.example 已就位（Jenkins 构建编排模板）"
 echo "  - .claude/logs.yaml.example 已就位（日志查询 target 模板）"
-echo "  - .claude/hooks/db-readonly-guard.py 已就位（DB MCP 写操作硬拦截）"
+echo "  - .claude/hooks/ 已就位（db-readonly-guard / evaluator-context-guard 等 PreToolUse hook）"
 echo "  - .claude/settings.json 已就位（hook 注册）"
 echo "  - .mcp.json 已就位（github / tapd / jenkins 三个 MCP server）"
 echo "  - docs/ 已就位（baseline / consensus / design / feedback / tasks / workspace，含 .gitkeep）"
