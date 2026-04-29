@@ -68,7 +68,7 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 | `/run-tasks` | 批量循环执行 `tasks.yaml` 的验证断言；支持 **`--parallel N`** 并行 Worker（git worktree 隔离 + 按 `depends_on` 分波 + ff-only 拓扑序合并） | 手动 |
 | `/init-baseline` | 首次接入，生成项目基线 | 手动（一次性） |
 | `/review` | 结构化代码校验（Generator 自审） | /run-tasks 自动触发 |
-| **`/adversarial-review`** | **独立 Evaluator 对抗式评估**（必须新开 session）；关键路径用 **`--oracle`** 双 Evaluator strict-AND（两个都 Approve 才过，人格差异化避免盲区重叠） | PR / Sprint 合并前手动 |
+| **`/adversarial-review`** | **独立 Evaluator 对抗式评估**（默认用 Task tool spawn 独立 subagent + hook 硬拦 journal/实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND（两个都 Approve 才过，人格差异化避免盲区重叠） | PR / Sprint 合并前手动 |
 | `/test-gen` | 基于设计契约生成测试 | 手动 |
 | `/preflight` | 提交前全面检查 | 手动 |
 | **`/metrics`** | **Harness 运行指标聚合**（首次通过率、Evaluator 分数、knowledge 命中） | 每周 / sprint 结束手动 |
@@ -90,7 +90,7 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 ### 独立 Evaluator 对抗式评估（`/adversarial-review`）
 
 同一 agent 既写代码又审代码有偏见（self-rating bias）。本 harness 让 `/review`（Generator 自审）和 `/adversarial-review`（独立 Evaluator）分工：
-- `/adversarial-review` **必须新开 session**，不加载 journal 和实现 knowledge
+- `/adversarial-review` 默认用 **Task tool spawn 独立 Evaluator subagent**（独立 context window），配合 `evaluator-context-guard.py` PreToolUse hook 在工具层硬拦 journal / backend / frontend knowledge 的访问；`--new-session` fallback 用于 Task tool 不可用或想再加一层物理隔离的场景
 - 只看 design + diff + red-lines + tasks.yaml 的 verify
 - 按四维度打分（功能性 30 / 代码质量 25 / 设计契合度 25 / 原创性 20），**不许满分**
 - 断言失败或红线违反直接 Reject；Must-Fix 自动生成 `fix-tasks.yaml`

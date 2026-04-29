@@ -28,7 +28,7 @@
 | `/run-tasks` | 批量循环执行 checklist 中的任务；支持 **`--parallel N`** 并行 Worker（git worktree 隔离，按 `depends_on` 分波） | 由 /iterate 后手动触发 |
 | `/init-baseline` | 旧项目首次接入，生成基线 + 初始化 knowledge | 手动（一次性） |
 | `/review` | 结构化代码校验（Generator 自审） | 由 /run-tasks 自动触发，或手动 |
-| `/adversarial-review` | **独立 Evaluator** 对抗式评估（PR/Sprint 结束前，必须新开 session）；关键路径用 **`--oracle`** 双 Evaluator strict-AND | 手动 |
+| `/adversarial-review` | **独立 Evaluator** 对抗式评估（默认 Task tool spawn 独立 subagent + hook 硬拦 journal / 实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND | 手动 |
 | `/test-gen` | 基于设计契约单独生成测试 | 手动（/impl 已内置测试生成） |
 | `/preflight` | 提交前全面检查 | 手动 |
 | `/metrics` | Harness 运行指标聚合（首次通过率、Evaluator 分数、knowledge 命中等） | 手动（建议每周或 sprint 结束时） |
@@ -53,16 +53,20 @@
   /run-tasks backend --parallel 4 → 同波 4 个 worktree 并行 → ff-only 按拓扑序合并 → ✅
 
 PR / Sprint 合并前（推荐）：
-  【新开 session】/adversarial-review --branch feature/xxx → Evaluator 独立打分 → 必要时 fix-tasks.yaml
+  /adversarial-review --branch feature/xxx
+    → 父 session Task spawn 独立 Evaluator subagent（hook 硬拦 journal / 实现 knowledge）
+    → 独立打分 → 必要时 fix-tasks.yaml
+    → 加 --new-session 走 fallback（手动新开 Claude Code 进程）
 
 小任务（/impl 直走路径）也要评审时：
-  【新开 session】/adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
+  /adversarial-review --sprint ad-hoc/{YYYY-MM-DD}-{slug}
     → /impl 完成时已自动写好 ad-hoc tasks.yaml，直接作为判据输入
 
 关键路径双评审（支付/鉴权/资产/schema 迁移）：
-  【新开 session】/adversarial-review --branch feature/xxx --oracle
-    → 3 个 session：Evaluator-A（严格规范型）+ Evaluator-B（对抗反例型）+ Aggregator
+  /adversarial-review --branch feature/xxx --oracle
+    → 父 session Task spawn 三个独立 subagent：Evaluator-A（严格规范型）+ Evaluator-B（对抗反例型）+ Aggregator（仲裁）
     → strict-AND：两者都 Approve 才算过；分差 >15 标 disagreement 请人亲审
+    → 父 session 不参与仲裁（自己是 Generator，避免 self-rating bias）
 
 每周或 sprint 结束：
   /metrics --days 7 → 看首次通过率、Evaluator 平均分、零命中 knowledge
@@ -298,7 +302,7 @@ code-review-graph build
 - **影响分析先于编码**：功能迭代先跑 `/iterate` 看清影响范围，再动手写代码
 - **完成标准是合约，不是感觉**：`tasks.yaml` 的 `verify` 断言必须全绿才算做完（防止 *premature closure*）。大任务由 `/iterate` 产出 `docs/tasks/{sprint}/tasks.yaml`；小任务走 `/impl` 直达路径时自动写 `docs/tasks/ad-hoc/{YYYY-MM-DD}-{slug}/tasks.yaml`——两条路径统一都有客观判据，`/adversarial-review` 才跑得起来
 - **约束是强制的**：`/review`、`/adversarial-review` 和 `/preflight` 的检查项不是建议，是必须通过的关卡；红线违反直接 Reject
-- **独立 Evaluator 对抗自迭代**：同一 agent 既写代码又审代码有偏见，所以 `/adversarial-review` 必须新开 session、不加载 journal；关键路径用 `--oracle` 两个差异化 Evaluator strict-AND 通过
+- **独立 Evaluator 对抗自迭代**：同一 agent 既写代码又审代码有偏见，所以 `/adversarial-review` 默认用 Task tool spawn 独立 subagent + `evaluator-context-guard` hook 硬拦 journal / 实现 knowledge；关键路径用 `--oracle` 两个差异化 Evaluator + 独立 Aggregator subagent strict-AND 通过
 - **并行不破坏依赖**：`/run-tasks --parallel N` 按 `depends_on` 分波，同波任务在各自 git worktree 里跑，合并时严格走 ff-only 拓扑序（冲突走自愈循环，不允许 `--no-ff` 盖住）
 - **反馈要结构化**：开发过程中发现设计有问题，用 `/spec-feedback` 记录到 `docs/feedback/`
 - **按需加载上下文**：Knowledge 按领域分层，命令只加载相关的文件，不浪费上下文窗口
