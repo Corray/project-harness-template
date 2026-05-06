@@ -133,17 +133,23 @@ echo -e "${GREEN}[2/4] 添加新文件${NC}"
 copy_if_missing "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" "./HARNESS_PHILOSOPHY.md"
 
 # ----- Step 2: 命令文件 -----
-# 新增命令：adversarial-review.md, metrics.md, dashboard.md — copy_if_missing 足矣
-# 已有命令但我们改过：iterate.md, impl.md, run-tasks.md, review.md — 用 copy_command
+# 命令演化分发：
+#   - copy_command 组：模板里仍在演进、改动应同步给老项目（覆盖 + .bak 备份）
+#   - copy_if_missing 组：当前还偏稳定、首次安装时拷一份足矣
+#
+# 教训：曾把 adversarial-review.md 划进 copy_if_missing 组，
+# 结果引入 no-contract 降级模式时老项目升级全跳过——
+# "新增命令首装够用"的假设只在命令首发那一刻成立，长期演进必然破。
+# 任何被实质改造过的命令都应进 copy_command 组。
 for cmd_file in "$TEMPLATES_DIR/.claude/commands/"*.md; do
   name=$(basename "$cmd_file")
   dst=".claude/commands/$name"
   case "$name" in
-    adversarial-review.md|metrics.md|dashboard.md|command-feedback.md)
-      copy_if_missing "$cmd_file" "$dst"
-      ;;
-    impl.md|iterate.md|run-tasks.md|review.md)
+    impl.md|iterate.md|run-tasks.md|review.md|adversarial-review.md)
       copy_command "$cmd_file" "$dst"
+      ;;
+    metrics.md|dashboard.md|command-feedback.md)
+      copy_if_missing "$cmd_file" "$dst"
       ;;
     *)
       # 其他命令不动，保留用户现状

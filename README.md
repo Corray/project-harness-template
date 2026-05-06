@@ -68,7 +68,7 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 | `/run-tasks` | 批量循环执行 `tasks.yaml` 的验证断言；支持 **`--parallel N`** 并行 Worker（git worktree 隔离 + 按 `depends_on` 分波 + ff-only 拓扑序合并） | 手动 |
 | `/init-baseline` | 首次接入，生成项目基线 | 手动（一次性） |
 | `/review` | 结构化代码校验（Generator 自审） | /run-tasks 自动触发 |
-| **`/adversarial-review`** | **独立 Evaluator 对抗式评估**（默认用 Task tool spawn 独立 subagent + hook 硬拦 journal/实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND（两个都 Approve 才过，人格差异化避免盲区重叠） | PR / Sprint 合并前手动 |
+| **`/adversarial-review`** | **独立 Evaluator 对抗式评估**（默认用 Task tool spawn 独立 subagent + hook 硬拦 journal/实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND（两个都 Approve 才过，人格差异化避免盲区重叠）；`tasks.yaml` 缺失时自动降级 **no-contract** 模式（D 维度权重翻倍至 40 + 通用质量门 + 3 条 D 加强追问） | PR / Sprint 合并前手动 |
 | `/test-gen` | 基于设计契约生成测试 | 手动 |
 | `/preflight` | 提交前全面检查 | 手动 |
 | **`/metrics`** | **Harness 运行指标聚合**（首次通过率、Evaluator 分数、knowledge 命中） | 每周 / sprint 结束手动 |

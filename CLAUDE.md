@@ -28,7 +28,7 @@
 | `/run-tasks` | 批量循环执行 checklist 中的任务；支持 **`--parallel N`** 并行 Worker（git worktree 隔离，按 `depends_on` 分波） | 由 /iterate 后手动触发 |
 | `/init-baseline` | 旧项目首次接入，生成基线 + 初始化 knowledge | 手动（一次性） |
 | `/review` | 结构化代码校验（Generator 自审） | 由 /run-tasks 自动触发，或手动 |
-| `/adversarial-review` | **独立 Evaluator** 对抗式评估（默认 Task tool spawn 独立 subagent + hook 硬拦 journal / 实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND | 手动 |
+| `/adversarial-review` | **独立 Evaluator** 对抗式评估（默认 Task tool spawn 独立 subagent + hook 硬拦 journal / 实现 knowledge；fallback `--new-session`）；关键路径用 **`--oracle`** 双 Evaluator strict-AND；`tasks.yaml` 缺失时自动降级 **no-contract**（D 权重 20→40） | 手动 |
 | `/test-gen` | 基于设计契约单独生成测试 | 手动（/impl 已内置测试生成） |
 | `/preflight` | 提交前全面检查 | 手动 |
 | `/metrics` | Harness 运行指标聚合（首次通过率、Evaluator 分数、knowledge 命中等） | 手动（建议每周或 sprint 结束时） |
