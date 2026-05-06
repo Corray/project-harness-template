@@ -292,8 +292,9 @@ tasks:
       - {file 2}
     verify:
       # 必须填：Step 4.3 实际跑过且 exit 0 的测试命令
+      # 多模块 maven 项目：从仓库根目录跑 + -pl <module> -am（见下方"填写规则"硬约束）
       - type: cmd
-        cmd: "{例如 mvn test -Dtest=OrderServiceTest}"
+        cmd: "JAVA_HOME=... mvn -pl <module-path> -am -DfailIfNoTests=false -Dtest='OrderServiceTest' test"
       # 必须填：本次主要改动文件的关键行（新方法签名 / 新字段 / 新路由）
       - type: file_contains
         file: "{主要改动文件路径}"
@@ -308,6 +309,31 @@ tasks:
 - `verify.file_contains.pattern` 要选**本次 /impl 新增或关键修改**的标识（新方法名、新字段、新路由），不要选"本来就有"的行
 - 至少 1 条 `cmd` + 1 条 `file_contains`；如果 Step 4.4 回归验证跑了，再加 1 条 `regression`
 - 不许写"跳过"占位符——宁可少一条也不许假数据
+
+**多模块 maven 项目硬约束（pl/am）：**
+
+如果项目是**多模块 maven**（根 pom 有 `<modules>` 列表，且本次改动涉及子模块），verify cmd 必须满足：
+1. **从仓库根目录跑**，不要 `cd <module> && mvn test`
+2. 必须带 `-pl <module-path>`（projects-list，限定要测的子模块）
+3. 必须带 `-am`（also-make，自动按依赖序构建上游模块）
+
+正确：
+```
+JAVA_HOME=... mvn -pl chatlabs-marketing-business/xxx-ability \
+  -am -DfailIfNoTests=false -Dtest='EventDictionaryBizServiceImplBatchUpdateTest' test
+```
+
+错误（会让 /adversarial-review 复跑命中 stale jar）：
+```
+cd chatlabs-marketing-business/xxx-ability && mvn -Dtest='...' test
+```
+
+**为什么硬约束**：`cd <module> && mvn test` 不会重新构建上游（common 等），而是直接从本地 `~/.m2` 拿上游 jar。如果本次 /impl 同时改了 common 模块（新增 DTO 字段的 getter/setter）但没主动 `mvn install` 到 .m2，运行期就会抛 `NoSuchMethodError`。CI fresh build 永远绿（每次从根 pom 起按依赖序全量编译），所以**这个问题只在本地复跑、对抗 evaluator、其他人 checkout 后跑时暴露**——属于 harness 假阳/假阴的系统性来源。`-pl ... -am` 让 maven 永远先构建当前 source 的上游再跑测试，绕过 .m2 stale jar。
+
+**不适用场景**（直接照原样写常规命令即可）：
+- 单模块 maven 项目（根 pom 没 `<modules>`）
+- gradle / npm / pnpm / cargo / go 等非 maven 项目
+- python pytest / unittest 等
 
 **后续使用**：
 
