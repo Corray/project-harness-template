@@ -14,9 +14,11 @@ fi
 #   - 新文件、新目录：直接添加（已存在则跳过）
 #   - 已有但内容变更的命令文件（impl.md / iterate.md / run-tasks.md / review.md）
 #     → 先备份为 {name}.bak.{timestamp}，然后覆盖为新版
-#   - 完全不动 CLAUDE.md / HARNESS_PHILOSOPHY.md（如存在）/ knowledge/ / project.yaml /
+#   - 完全不动 CLAUDE.md / knowledge/ / project.yaml /
 #     docs/baseline / docs/design 等你的真实工作产物
 #   - 想回滚某个命令：mv {name}.bak.{timestamp} {name}
+#   - 检测到下游遗留的 HARNESS_PHILOSOPHY.md（旧版 setup/upgrade 复制过的）会提示删除
+#     —— 不强删，但 PHILOSOPHY 已改为只在模板仓维护
 #
 # --safe 模式（保守，适合你自己改过命令文件的情况）：
 #   - 已有且内容变更的命令文件生成 {name}.new 旁注，由你 diff 合并
@@ -128,11 +130,18 @@ copy_command() {
   fi
 }
 
-# ----- Step 1: 新文件：HARNESS_PHILOSOPHY.md -----
-echo -e "${GREEN}[2/4] 添加新文件${NC}"
-copy_if_missing "$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md" "./HARNESS_PHILOSOPHY.md"
+# ----- 检测下游遗留的 HARNESS_PHILOSOPHY.md（无遗留时静默） -----
+# 历史版本的 setup.sh / upgrade.sh 会把 PHILOSOPHY 复制到下游，
+# 但这是错的——PHILOSOPHY 应作为单一真相源留在模板仓，分发后下游版本会
+# 随模板仓演化而漂移（升级脚本本身从不更新已存在的 PHILOSOPHY）。
+# 仅提示，不强删——开发者可能本地改过；删除是 destructive 操作。
+LEGACY_PHILOSOPHY=""
+if [ -f "./HARNESS_PHILOSOPHY.md" ]; then
+  LEGACY_PHILOSOPHY="./HARNESS_PHILOSOPHY.md"
+fi
 
 # ----- Step 2: 命令文件 -----
+echo -e "${GREEN}[2/4] 同步命令文件${NC}"
 # 命令演化分发：
 #   - copy_command 组：模板里仍在演进、改动应同步给老项目（覆盖 + .bak 备份）
 #   - copy_if_missing 组：当前还偏稳定、首次安装时拷一份足矣
@@ -400,10 +409,19 @@ if [ ${#SKIPPED[@]} -gt 0 ]; then
   echo ""
 fi
 
+if [ -n "$LEGACY_PHILOSOPHY" ]; then
+  echo -e "${YELLOW}⚠️  发现旧版分发的 HARNESS_PHILOSOPHY.md${NC}"
+  echo "   PHILOSOPHY 已改为只在模板仓维护（避免下游版本漂移），下游不再保留副本。"
+  echo "   建议手动删除：rm $LEGACY_PHILOSOPHY"
+  echo "   需要查阅时打开模板仓：$TEMPLATES_DIR/HARNESS_PHILOSOPHY.md"
+  echo ""
+fi
+
 # ----- 提醒 -----
 cat <<EOF
 ${BLUE}下一步建议：${NC}
-  1. 通读新增的 HARNESS_PHILOSOPHY.md 理解 /adversarial-review、/metrics、/dashboard 的设计意图
+  1. 想了解 /adversarial-review、/metrics、/dashboard 等设计意图：
+     看模板仓 $TEMPLATES_DIR/HARNESS_PHILOSOPHY.md（不再分发到下游，避免版本漂移）
   2. 如有 .new 文件，逐个 diff 后合并（主要是 impl.md / run-tasks.md，新增 Jenkins 询问步骤）；或去掉 --safe 让脚本自动覆盖 + 备份
   3. 可能需要手动更新的内容（本脚本不会自动动）：
      - CLAUDE.md：参考模板版加上 /adversarial-review、/metrics、/dashboard 到命令表

@@ -13,7 +13,7 @@
 cd your-project-repo
 bash /path/to/project-harness-template/setup.sh
 
-# 方式二：手动复制
+# 方式二：手动复制（注意：HARNESS_PHILOSOPHY.md 不分发到下游，留模板仓做单一真相源）
 cp -r project-harness-template/.claude project-harness-template/CLAUDE.md project-harness-template/docs/ your-project-repo/
 ```
 
@@ -50,6 +50,8 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 ```
 
 `upgrade.sh` 只动命令文件和事件流目录，完全不碰你的 `CLAUDE.md` / `knowledge/` / `docs/baseline/` / `docs/design/` 等真实工作产物。`upgrade-all.sh` 单个项目失败不中断整体流程，最后给出成功/跳过/失败的汇总。
+
+> **HARNESS_PHILOSOPHY.md 不分发到下游**——它是设计哲学的单一真相源，留在本模板仓维护即可。下游项目历史上若有遗留副本，`upgrade.sh` 会在结尾提示建议手动 `rm` 清理（不强删，避免误删本地修改）。
 
 ## 命令速查
 
@@ -259,8 +261,8 @@ export FIGMA_API_KEY="figd_xxx"      # Figma 设计稿
 
 ```
 project-harness-template/
-├── CLAUDE.md                # AI 行为指令（项目级）
-├── HARNESS_PHILOSOPHY.md    # 设计哲学（为什么这么设计）
+├── CLAUDE.md                # AI 行为指令（项目级；setup/upgrade 会复制到下游）
+├── HARNESS_PHILOSOPHY.md    # 设计哲学（为什么这么设计；只留模板仓，不分发）
 ├── setup.sh                 # 首次安装脚本（单项目）
 ├── upgrade.sh               # 升级脚本（单项目，带自动备份）
 ├── upgrade-all.sh           # 批量升级脚本（读注册表一次性升所有项目）
