@@ -38,12 +38,14 @@
 
 ### Step 3：影响分析（核心）
 
-**如果 code-review-graph MCP 可用：**
-- 调用 `get_impact_radius_tool` 获取需求涉及文件的精确 blast radius
-- 调用 `detect_changes_tool` 获取风险评分
-- 用 graph 数据作为影响分析的基础，再结合基线文档补充业务层面的判断
+**graph 优先**——见 CLAUDE.md「Code Review Graph」节的命名约定和探针规则。
 
-**如果不可用，退回基线文档推断（现有方式）。**
+1. **探针**：调 `mcp__Code-review-gragh__list_repos_tool` 验证可用性
+2. **探针成功且包含当前项目**：
+   - `mcp__Code-review-gragh__get_impact_radius_tool` 获取需求涉及文件的精确 blast radius
+   - `mcp__Code-review-gragh__detect_changes_tool` 获取风险评分
+   - 用 graph 数据作为影响分析的基础，**再**结合基线文档补充业务层面的判断（graph 与基线冲突时以 graph 为准）
+3. **探针失败 / 项目未索引**：静默降级到基线文档推断（不报错）
 
 逐项分析：
 - 模块影响：哪些现有模块被修改/新增

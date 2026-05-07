@@ -40,13 +40,13 @@
 - 改动在 1-2 个模块内
 - 不需要新增 API 接口
 - 不需要新增/删除数据库实体
-- 有 code-review-graph 时：blast radius ≤ 10 个文件
+- graph 可用时：`mcp__Code-review-gragh__get_impact_radius_tool` 返回 blast radius ≤ 10 个文件
 
 **判定为大任务（转入 /iterate）：**
 - 涉及 3 个以上模块
 - 需要新增 2 个以上 API 接口
 - 需要新增数据库实体或重构实体关系
-- 有 code-review-graph 时：blast radius > 10 个文件
+- graph 可用时：`mcp__Code-review-gragh__get_impact_radius_tool` 返回 blast radius > 10 个文件
 - 描述含"新增功能体系"、"重构"、"新模块"等关键词
 
 小任务输出（不暂停）：
@@ -86,9 +86,10 @@
 2. 按栈类型加载对应 Knowledge（只加载相关的，不全量）
 3. 读取相关详细设计 + 基线文档
 4. 读取 workspace journal 最近 5 条（按月切片倒序读：先 `journal-{当月 YYYY-MM}.md` 末尾，不足再补 `journal-{上月}.md` 末尾，仍兼容旧 `journal.md`）
-5. 代码结构分析：
-   - 有 code-review-graph MCP → `query_graph_tool` 查依赖链和测试覆盖
-   - 无 → 扫描相关模块代码
+5. 代码结构分析（**graph 优先于代码扫描**——见 CLAUDE.md「Code Review Graph」节的命名约定和探针规则）：
+   1. 先调 `mcp__Code-review-gragh__list_repos_tool` 做探针
+   2. 探针返回包含当前项目 → 用 `mcp__Code-review-gragh__query_graph_tool` 查依赖链和测试覆盖；用 `mcp__Code-review-gragh__get_impact_radius_tool` 获取本次任务的 blast radius
+   3. 探针失败 / 当前项目未索引 → 静默降级到扫描相关模块代码（不报错）
 
 **每加载一个 knowledge 文件，追加一条命中事件**到 `docs/workspace/.harness-metrics/knowledge-hits/{YYYY-MM}.jsonl`（供 `/metrics` 统计 Top/零命中）：
 
@@ -160,8 +161,8 @@
 
 #### 4.4 回归验证
 
-- 有 code-review-graph → `get_impact_radius_tool` 只跑 blast radius 内测试
-- 无 graph → 跑全量测试
+- graph 可用（Step 2 已探针确认） → `mcp__Code-review-gragh__get_impact_radius_tool` 只跑 blast radius 内测试
+- graph 不可用 → 跑全量测试
 
 回归失败 → 自愈循环（最多 3 轮）。
 

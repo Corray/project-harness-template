@@ -12,12 +12,14 @@
 
 ### Step 1：确定校验范围并加载依据
 
-**如果 code-review-graph MCP 可用：**
-- 调用 `detect_changes_tool` 获取变更文件的风险评分和影响范围
-- 调用 `get_impact_radius_tool` 发现"受影响但未修改的文件"——这些文件可能需要同步修改
-- 校验范围 = 改动文件 + graph 标出的受影响文件
+**graph 优先**——见 CLAUDE.md「Code Review Graph」节的命名约定和探针规则。
 
-**如果不可用：** 校验范围 = 改动文件
+1. **探针**：调 `mcp__Code-review-gragh__list_repos_tool` 验证可用性
+2. **探针成功且包含当前项目**：
+   - `mcp__Code-review-gragh__detect_changes_tool` 获取变更文件的风险评分和影响范围
+   - `mcp__Code-review-gragh__get_impact_radius_tool` 发现"受影响但未修改的文件"——这些文件可能需要同步修改
+   - 校验范围 = 改动文件 + graph 标出的受影响文件
+3. **探针失败 / 项目未索引**：校验范围 = 改动文件（静默降级）
 
 按栈类型加载对应 Knowledge：
 - 后端 → `backend/*` + `red-lines.md`

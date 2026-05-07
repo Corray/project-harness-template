@@ -164,21 +164,35 @@ DB MCP 配置 / SSH 隧道 / 后台服务安装等运维操作，跑 `bash .clau
 
 ## Code Review Graph（可选增强）
 
-如果项目装了 [code-review-graph](https://github.com/tirth8205/code-review-graph) MCP，以下命令自动获得精确代码结构分析：
+如果配置了 [code-review-graph](https://github.com/tirth8205/code-review-graph) MCP，以下命令应**优先使用 graph** 而不是直接扫描代码：
 
-| 命令 | 增强能力 |
-|------|---------|
-| `/iterate` | `get_impact_radius_tool` 精确 blast radius |
-| `/impl` Step 1 | `query_graph_tool` 查调用关系、依赖、测试覆盖 |
-| `/impl` Step 4.4 | `get_impact_radius_tool` 只跑受影响测试，不全量回归 |
-| `/review` | `detect_changes_tool` 风险评分 + 受影响但未改文件 |
-| `/init-baseline` | `get_architecture_overview_tool` 精确架构图 |
+| 命令 | graph 工具（带 MCP 前缀） |
+|------|--------------------------|
+| `/iterate` 影响分析 | `mcp__Code-review-gragh__get_impact_radius_tool` 精确 blast radius |
+| `/iterate` 风险评估 | `mcp__Code-review-gragh__detect_changes_tool` 风险评分 |
+| `/impl` Step 1 侦察 | `mcp__Code-review-gragh__query_graph_tool` 查调用关系、依赖、测试覆盖 |
+| `/impl` Step 4.4 回归 | `mcp__Code-review-gragh__get_impact_radius_tool` 只跑受影响测试，不全量回归 |
+| `/review` 校验范围 | `mcp__Code-review-gragh__detect_changes_tool` 风险评分 + 受影响但未改文件 |
+| `/init-baseline` 架构 | `mcp__Code-review-gragh__get_architecture_overview_tool` 精确架构图 |
 
-**使用规则：**
-- 命令执行先检查 graph MCP 可用性
-- 可用则优先 graph 数据，再结合 Knowledge 和基线
-- 不可用则退回基线 + 代码扫描，不报错
-- Graph 和基线冲突时**以 graph 为准**（实时计算，基线可能过时）
+### 工具命名约定（重要）
+
+- **MCP server 名是 `Code-review-gragh`**（"gragh" 不是笔误，是上游 server 的实际拼写——参见 [tirth8205/code-review-graph](https://github.com/tirth8205/code-review-graph)）
+- 所有 graph 工具**必须**带 `mcp__Code-review-gragh__` 前缀调用，例如 `mcp__Code-review-gragh__query_graph_tool`
+- 直接调用裸名（如 `query_graph_tool`）会因工具列表里没有该名字而失败，触发不必要的 fallback
+
+### 使用规则（强制）
+
+每个上表里的命令在进入扫描代码 / 读基线之前，**必须先做主动探针**：
+
+1. **探针**：调用 `mcp__Code-review-gragh__list_repos_tool`（返回当前 graph 中已索引的仓库列表）
+2. **判定**：
+   - 探针**返回非空且包含当前项目** → 视为可用，**优先用 graph 工具**采集数据，**再**结合 knowledge 和基线
+   - 探针成功但**当前项目不在列表** → 提示开发者需要先 `code-review-graph build`，本次降级到代码扫描
+   - 探针失败（工具不存在 / 调用报错） → 静默降级到代码扫描，**不报错**
+3. **冲突仲裁**：graph 数据和基线文档冲突时**以 graph 为准**（graph 实时计算，基线可能过时）
+
+**为什么强制探针**："如果可用就用"是 opt-in 措辞，Claude 实际不会主动验证可用性，导致 graph 装了但永远走不到——硬性要求先调一次探针才能避免。探针成本极低（一次工具调用），但能让 graph 真正发挥作用。
 
 安装步骤见模板仓 README 的「Code Review Graph」章节。
 

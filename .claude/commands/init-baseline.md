@@ -36,15 +36,19 @@
 
 ### Step 3：扫描代码仓库
 
-**如果 code-review-graph MCP 可用（推荐）：**
-- 先执行 `code-review-graph build`（如果图还未构建）
-- 调用 `get_architecture_overview_tool` 获取精确的架构概览（社区检测、模块耦合度）
-- 调用 `list_communities_tool` 获取代码社区划分
-- 调用 `get_hub_nodes_tool` 识别核心节点（最关键的类/函数）
-- 调用 `get_knowledge_gaps_tool` 发现未测试的热点
-- 用 graph 数据补充和验证下面的文件系统扫描结果
+**graph 优先**——见 CLAUDE.md「Code Review Graph」节的命名约定和探针规则。
 
-**同时扫描本地文件系统**（graph 数据和文件扫描互补）：
+1. **探针**：调 `mcp__Code-review-gragh__list_repos_tool` 验证可用性
+2. **探针成功且包含当前项目**（推荐）：
+   - `mcp__Code-review-gragh__get_architecture_overview_tool` 获取精确的架构概览（社区检测、模块耦合度）
+   - `mcp__Code-review-gragh__list_communities_tool` 获取代码社区划分
+   - `mcp__Code-review-gragh__get_hub_nodes_tool` 识别核心节点（最关键的类/函数）
+   - `mcp__Code-review-gragh__get_knowledge_gaps_tool` 发现未测试的热点
+   - 用 graph 数据补充和验证下面的文件系统扫描结果
+3. **探针成功但当前项目未索引**：提示开发者先在项目根目录跑 `code-review-graph build`，本次降级到纯文件扫描
+4. **探针失败**：静默降级到纯文件扫描（不报错）
+
+**同时扫描本地文件系统**（graph 数据和文件扫描互补，graph 与文件冲突时以 graph 为准）：
 
 **Java 后端扫描：**
 1. 技术栈（pom.xml/build.gradle → JDK、Spring Boot、主要依赖、sxp-framework）
