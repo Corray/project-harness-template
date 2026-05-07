@@ -473,10 +473,35 @@ if 文件不存在:
 elif 含 default_job 字段:
     走 "单 job 模式"，job=default_job
 elif 含 stages: 数组:
-    走 "多 Freestyle 串行模式"
+    走 "多 Freestyle 串行模式"，先做 7.2.5 模块筛选
 else:
     报错：jenkins.yaml 既无 default_job 也无 stages，跳过本步
 ```
+
+#### 7.2.5 模块筛选（强制，仅多 Freestyle 串行模式）
+
+走单 job 模式 / 只有一个 stage 时，本步直接跳过（无筛选意义）。
+
+stages 数组有多个条目时，**调 `mcp__jenkins__build_job` 之前必须先筛**：
+
+1. `git diff --name-only HEAD~1..HEAD` 拿本次 commit 改动文件
+2. 对每个 stage，根据 **job 名 ↔ 改动文件路径** 做语义匹配：
+   - `order-service-deploy` ↔ 改动含 `order-service/**` → 命中
+   - `payment-package` ↔ 改动含 `payment-service/**` 或 `payment/**` → 命中
+3. **筛选结果分类**：
+   - **全部 stage 都不命中** → 跳过 Step 7 整段（"无相关模块改动"），impl 事件 `jenkins` 字段记 `{"mode":"skipped_no_module_match"}`，结束 Step 7
+   - **部分 stage 命中** → 输出筛选表让开发者确认：
+     ```
+     📦 改动模块：order-service
+        将触发：order-package → order-deploy
+        将跳过：payment-package, payment-deploy（无相关改动）
+     继续？(y/N)
+     ```
+     选 N → 跳过 Step 7（同上记 `skipped_by_user_after_filter`）
+   - **任一 stage 归属不确定**（如 `common/utils/` 不知影响哪些服务） → **必须询问开发者**，禁止默认跳过；漏 deploy 比多 deploy 风险更高
+4. 命中的 stages 进入 7.5 多 Freestyle 串行执行；跳过的 stages 在最终输出 / metrics 里仍要列出（标 `SKIPPED_BY_FILTER`），保持可追溯
+
+**为什么强制**：避免改一个模块触发所有模块的 deploy 浪费构建资源；同时避免误触发不相关生产部署。语义匹配靠 Claude 推断 + 不确定就问人，不引入新的 yaml schema。
 
 #### 7.3 占位符解析
 
