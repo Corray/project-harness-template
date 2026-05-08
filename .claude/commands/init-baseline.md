@@ -51,7 +51,7 @@
 **同时扫描本地文件系统**（graph 数据和文件扫描互补，graph 与文件冲突时以 graph 为准）：
 
 **Java 后端扫描：**
-1. 技术栈（pom.xml/build.gradle → JDK、Spring Boot、主要依赖、sxp-framework）
+1. 技术栈（pom.xml/build.gradle → JDK、Spring Boot、主要依赖）
 2. 架构模式（包结构 → DDD 六模块 / MVC）
 3. 模块划分（Maven modules 或包结构）
 4. API 清单（Controller/Adapter 类 → 路径、方法、参数、返回类型）
@@ -76,14 +76,13 @@
 ### Step 5：初始化 Knowledge 文件
 
 根据扫描结果，**自动填充** `.claude/knowledge/` 下对应的模板文件：
-- 后端项目 → 填充 `backend/architecture.md` 中的架构模式段落（保留适用的，删除不适用的）
-- 填充 `backend/sxp-framework.md`（如果检测到 sxp 依赖）
+- 后端项目 → 填充 `backend/architecture.md` 中的架构模式段落（保留适用的，删除不适用的）+ `backend/api-conventions.md` 的 API 风格段落
 - 前端项目 → 填充 `frontend/` 下对应的文件
 
 ```
 Knowledge 文件已初始化：
 - .claude/knowledge/backend/architecture.md — 已填入 DDD 六模块结构
-- .claude/knowledge/backend/sxp-framework.md — 已填入 sxp-framework 2.x 规范
+- .claude/knowledge/backend/api-conventions.md — 已填入扫描到的 API 风格
 - .claude/knowledge/red-lines.md — 通用红线（请根据项目调整）
 
 ⚠️ 请人工检查并补充 knowledge 文件中标注 {需补充} 的部分

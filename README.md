@@ -167,7 +167,7 @@ bash upgrade-all.sh --only proj-alpha    # 只升级某个项目
 
 ```
 .claude/knowledge/
-├── backend/          # DDD/MVC 架构、API 约定、sxp-framework
+├── backend/          # DDD/MVC 架构、API 约定
 ├── frontend/         # React+antd、Taro+Vant
 ├── testing/          # 测试标准和覆盖要求
 └── red-lines.md      # 质量红线（通用）

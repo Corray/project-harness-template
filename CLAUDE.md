@@ -93,7 +93,7 @@ docs/
 
 ```
 .claude/knowledge/
-├── backend/{architecture,api-conventions,sxp-framework}.md
+├── backend/{architecture,api-conventions}.md
 ├── frontend/{react-patterns,taro-patterns}.md
 ├── testing/standards.md
 ├── collaboration.md          # 多 agent 并发共用工作区规范（识别信号 + 自检 + 隔离姿势）
