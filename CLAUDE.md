@@ -192,6 +192,20 @@ DB MCP 配置 / SSH 隧道 / 后台服务安装等运维操作，跑 `bash .clau
    - 探针失败（工具不存在 / 调用报错） → 静默降级到代码扫描，**不报错**
 3. **冲突仲裁**：graph 数据和基线文档冲突时**以 graph 为准**（graph 实时计算，基线可能过时）
 
+### 错误处理硬约束（覆盖 Claude 默认行为）
+
+Claude 默认看到工具调用 error 会**报错并尝试修复**——本节明确否决该默认。graph 探针失败时必须按以下规则处理：
+
+| 情况 | 现象 | 必须的处理 |
+|------|------|-----------|
+| MCP server 未注册 / 工具名找不到 | 调用 `mcp__Code-review-gragh__list_repos_tool` 立即返回 "tool not found" | **立即视为 graph 不可用，进 fallback；不重试，不向用户报错** |
+| 工具存在但调用失败（网络错 / 进程崩溃 / 任何 exception） | 调用返回 error 或非预期格式 | 同上——**fallback 不报错** |
+| 工具成功但返回空列表 / 不含当前项目 | 返回 `[]` 或仓库名不匹配 | 提示开发者「先在项目根跑 `code-review-graph build`」**一次**，本次 fallback；不要每个命令都重复提示 |
+
+**理由**：graph 是 *opt-in 增强*，不是 /impl 必需依赖；探针失败应当对开发者不可见（fallback 路径在 graph 没装时本来就是默认）。如果 Claude 把探针 error 当成"任务出错"开始排查 / 尝试 `pip install code-review-graph`，反而打断主流程。
+
+**例外**：graph 已经装并且本会话内**之前调用成功过**——突然 error 才视为"真异常"，可向用户提示「graph MCP 似乎掉线，本次降级；可重启 Claude Code 看看」。
+
 **为什么强制探针**："如果可用就用"是 opt-in 措辞，Claude 实际不会主动验证可用性，导致 graph 装了但永远走不到——硬性要求先调一次探针才能避免。探针成本极低（一次工具调用），但能让 graph 真正发挥作用。
 
 安装步骤见模板仓 README 的「Code Review Graph」章节。

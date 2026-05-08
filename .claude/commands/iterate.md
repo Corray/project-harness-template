@@ -45,7 +45,7 @@
    - `mcp__Code-review-gragh__get_impact_radius_tool` 获取需求涉及文件的精确 blast radius
    - `mcp__Code-review-gragh__detect_changes_tool` 获取风险评分
    - 用 graph 数据作为影响分析的基础，**再**结合基线文档补充业务层面的判断（graph 与基线冲突时以 graph 为准）
-3. **探针失败 / 项目未索引**：静默降级到基线文档推断（不报错）
+3. **探针失败（工具不存在 / 任何 error）/ 项目未索引**：**静默走基线文档推断，不向用户报错、不重试、不尝试安装 graph**（按 CLAUDE.md「错误处理硬约束」表）
 
 逐项分析：
 - 模块影响：哪些现有模块被修改/新增

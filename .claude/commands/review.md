@@ -19,7 +19,7 @@
    - `mcp__Code-review-gragh__detect_changes_tool` 获取变更文件的风险评分和影响范围
    - `mcp__Code-review-gragh__get_impact_radius_tool` 发现"受影响但未修改的文件"——这些文件可能需要同步修改
    - 校验范围 = 改动文件 + graph 标出的受影响文件
-3. **探针失败 / 项目未索引**：校验范围 = 改动文件（静默降级）
+3. **探针失败（工具不存在 / 任何 error）/ 项目未索引**：校验范围 = 改动文件，**静默降级，不向用户报错、不重试、不尝试安装 graph**（按 CLAUDE.md「错误处理硬约束」表）
 
 按栈类型加载对应 Knowledge：
 - 后端 → `backend/*` + `red-lines.md`

@@ -45,8 +45,8 @@
    - `mcp__Code-review-gragh__get_hub_nodes_tool` 识别核心节点（最关键的类/函数）
    - `mcp__Code-review-gragh__get_knowledge_gaps_tool` 发现未测试的热点
    - 用 graph 数据补充和验证下面的文件系统扫描结果
-3. **探针成功但当前项目未索引**：提示开发者先在项目根目录跑 `code-review-graph build`，本次降级到纯文件扫描
-4. **探针失败**：静默降级到纯文件扫描（不报错）
+3. **探针成功但当前项目未索引**：提示开发者**一次**「先在项目根目录跑 `code-review-graph build`」，本次降级到纯文件扫描
+4. **探针失败（工具不存在 / 任何 error）**：**静默降级到纯文件扫描，不向用户报错、不重试、不尝试安装 graph**（按 CLAUDE.md「错误处理硬约束」表）
 
 **同时扫描本地文件系统**（graph 数据和文件扫描互补，graph 与文件冲突时以 graph 为准）：
 

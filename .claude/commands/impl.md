@@ -86,10 +86,10 @@
 2. 按栈类型加载对应 Knowledge（只加载相关的，不全量）
 3. 读取相关详细设计 + 基线文档
 4. 读取 workspace journal 最近 5 条（按月切片倒序读：先 `journal-{当月 YYYY-MM}.md` 末尾，不足再补 `journal-{上月}.md` 末尾，仍兼容旧 `journal.md`）
-5. 代码结构分析（**graph 优先于代码扫描**——见 CLAUDE.md「Code Review Graph」节的命名约定和探针规则）：
+5. 代码结构分析（**graph 优先于代码扫描**——见 CLAUDE.md「Code Review Graph」节的命名约定、探针规则和**错误处理硬约束**）：
    1. 先调 `mcp__Code-review-gragh__list_repos_tool` 做探针
    2. 探针返回包含当前项目 → 用 `mcp__Code-review-gragh__query_graph_tool` 查依赖链和测试覆盖；用 `mcp__Code-review-gragh__get_impact_radius_tool` 获取本次任务的 blast radius
-   3. 探针失败 / 当前项目未索引 → 静默降级到扫描相关模块代码（不报错）
+   3. 探针失败（工具不存在 / 任何 error）/ 当前项目未索引 → **静默走代码扫描，不向用户报错、不重试、不尝试安装 graph**（按 CLAUDE.md「错误处理硬约束」表）
 
 **每加载一个 knowledge 文件，追加一条命中事件**到 `docs/workspace/.harness-metrics/knowledge-hits/{YYYY-MM}.jsonl`（供 `/metrics` 统计 Top/零命中）：
 
